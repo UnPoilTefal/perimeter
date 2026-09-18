@@ -252,6 +252,62 @@ jobs:
       # roles pourvus et sources sondables.
       - run: ./bin/perctl perimeter examples/perimeter.yml
 
+      # Declarer une sonde n'est pas la passer. Un registre dont une seule
+      # sonde echoue doit rendre une sortie ET un code de retour differents du
+      # meme registre dont toutes passent — sans corpus, et sans preuve de
+      # note. Sans cette garde, « registre coherent » peut decrire un registre
+      # dont aucune source ne repond.
+      - name: perimeter --probe distingue une sonde cassee
+        run: |
+          gabarit() {
+            cat <<YML
+          version: 1
+          roles:
+            intention.spec:       { source: specs }
+            intention.tickets:    { source: tickets }
+            contrainte.decisions: { source: adr }
+            contrainte.memoire:   { source: memoire }
+            etat.declare:         { source: depots }
+            etat.reel:            { source: cluster }
+          sources:
+            specs:   { adapter: files,  reliability: measured, probe: { cmd: "true" } }
+            tickets: { adapter: github, reliability: measured, endpoint: "org/produit",
+                       probe: { cmd: "echo org/produit", expect_stdout: "^org/produit$" } }
+            adr:     { adapter: git,    reliability: declared, probe: { cmd: "true" } }
+            memoire: { adapter: files,  reliability: declared, probe: { cmd: "true" } }
+            depots:  { adapter: git,    reliability: declared, probe: { cmd: "true" } }
+            cluster: { adapter: http,   reliability: measured, probe: { cmd: "$1" } }
+          YML
+          }
+          gabarit true     > /tmp/sain.yml
+          gabarit "exit 1" > /tmp/casse.yml
+
+          set +e
+          sortieSaine=$(./bin/perctl perimeter /tmp/sain.yml --probe --allow-exec 2>&1); codeSain=$?
+          sortieCassee=$(./bin/perctl perimeter /tmp/casse.yml --probe --allow-exec 2>&1); codeCasse=$?
+          # Une sonde reste du shell declare dans un fichier de configuration :
+          # sans autorisation, on refuse, on ne se tait pas.
+          ./bin/perctl perimeter /tmp/sain.yml --probe >/dev/null 2>&1; codeRefus=$?
+          set -e
+
+          if [ "$codeSain" -ne 0 ]; then
+            echo "::error::toutes les sondes passent, code attendu 0, obtenu $codeSain"
+            echo "$sortieSaine"; exit 1
+          fi
+          if [ "$codeCasse" -eq 0 ]; then
+            echo "::error::une sonde en echec doit rendre un code non nul"
+            echo "$sortieCassee"; exit 1
+          fi
+          if [ "$sortieSaine" = "$sortieCassee" ]; then
+            echo "::error::sortie identique pour les deux registres — la sonde cassee est invisible"
+            exit 1
+          fi
+          if [ "$codeRefus" -eq 0 ]; then
+            echo "::error::les sondes ont ete rejouees sans --allow-exec"
+            exit 1
+          fi
+          echo "  ✓ sain code $codeSain, casse code $codeCasse, refus sans --allow-exec code $codeRefus"
+
       # La porte s'applique a ses propres exemples. Le verdict attendu est
       # verifie par le code de sortie : 0 produire, 1 instruire, 2 rendre.
       - name: Verdicts de la porte
