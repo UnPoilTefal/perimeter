@@ -203,8 +203,8 @@ func target(args []string) string {
 
 func isTTY() bool { return term.IsTerminal(int(os.Stdout.Fd())) }
 
-func emit(res *report.Result, format string) error {
-	return res.Write(os.Stdout, format, format == "human" && isTTY())
+func emit(res *report.Result, format string, verbose bool) error {
+	return res.Write(os.Stdout, report.Rendu{Format: format, Color: format == "human" && isTTY(), Verbose: verbose})
 }
 
 func cmdLint(args []string) error {
@@ -212,6 +212,7 @@ func cmdLint(args []string) error {
 	format := fs.String("format", "human", "human | json | github")
 	strict := fs.Bool("strict", false, "traite les avertissements comme des erreurs")
 	disable := fs.String("disable", "", "regles a desactiver, separees par des virgules")
+	verbose := fs.Bool("verbose", false, "detaille par note les controles replies en constat de processus")
 	regPath := fs.String("perimeter", "", "registre a utiliser (defaut : recherche en remontant)")
 	path := positional(args)
 	_ = fs.Parse(trimPositional(args))
@@ -224,7 +225,7 @@ func cmdLint(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := emit(res, *format); err != nil {
+	if err := emit(res, *format, *verbose); err != nil {
 		return err
 	}
 	return fail(res.ExitCode(*strict))
@@ -294,7 +295,7 @@ func cmdVerify(args []string) error {
 	if *format == "json" {
 		res.Stats["outcomes"] = outcomes
 	}
-	if err := emit(res, *format); err != nil {
+	if err := emit(res, *format, false); err != nil {
 		return err
 	}
 	if *format == "human" {

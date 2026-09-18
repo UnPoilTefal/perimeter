@@ -77,6 +77,153 @@ jobs:
           ./bin/perctl index --sync --perimeter examples/perimeter.yml > /dev/null
           git checkout -- examples/
 
+      # Un controle qui atteint tout le corpus est un fait de processus, pas
+      # N faits de notes : il doit se replier en un constat portant sa
+      # remediation, et surtout laisser les autres controles visibles — c'est
+      # le fond de #58, ou 82 index-drift releguaient 24 atomicity hors de
+      # l'ecran. Le complement est verifie dans le meme mouvement : sur le
+      # meme corpus, une minorite qui derive garde son detail par note, parce
+      # que c'est alors l'identite des notes qui est l'information.
+      - name: un controle total se replie, une minorite garde son detail
+        run: |
+          set -euo pipefail
+          corpus=/tmp/agregation
+          # Douze notes : au-dessus du plancher de repli, et assez pour que la
+          # difference entre les deux regimes soit lisible. Trois depassent le
+          # budget de mots — c'est le second controle, celui qui doit survivre
+          # au repli du premier.
+          gabarit() { # $1 = nombre d'accroches redigees a la main (donc en derive)
+            rm -rf "$corpus" && mkdir -p "$corpus"
+            printf '# Index\n\n' > "$corpus/MEMORY.md"
+            for i in $(seq 0 11); do
+              n=$(printf 'reference-note-%02d' "$i")
+              desc="Le fait numero $i, enonce assez precisement pour decider du rappel"
+              corps="Un fait."
+              [ "$i" -lt 3 ] && corps=$(python3 -c "print('mot '*500)")
+              cat > "$corpus/$n.md" <<NOTE
+          ---
+          name: $n
+          description: "$desc"
+          metadata:
+            type: reference
+            modified: 2026-09-15
+          ---
+
+          $corps
+          NOTE
+              accroche="$desc"
+              [ "$i" -lt "$1" ] && accroche="reformule a la main pour l'humain qui parcourt ($i)"
+              printf -- '- [Reference: note %02d](%s.md) — %s\n' "$i" "$n" "$accroche" >> "$corpus/MEMORY.md"
+            done
+          }
+
+          # 12/12 : un constat, sa mesure, sa remediation.
+          gabarit 12
+          total=$(./bin/perctl lint "$corpus" || true)
+          case "$total" in
+            *"index-drift : l'index n'est pas synchronise (12/12 notes)"*) ;;
+            *) echo "::error::12/12 aurait du rendre un constat de processus"; echo "$total"; exit 1 ;;
+          esac
+          case "$total" in
+            *"perctl index --sync"*) ;;
+            *) echo "::error::le constat de processus ne porte pas sa remediation"; echo "$total"; exit 1 ;;
+          esac
+          # Le detail par note a disparu de la sortie standard...
+          if [ "$(printf '%s\n' "$total" | grep -c "l'accroche ne reprend pas")" -ne 0 ]; then
+            echo "::error::le detail par note aurait du se replier"; echo "$total"; exit 1
+          fi
+          # ...mais « --verbose » le rend, entier.
+          if [ "$(./bin/perctl lint "$corpus" --verbose | grep -c "l'accroche ne reprend pas")" -ne 12 ]; then
+            echo "::error::--verbose doit rendre les 12 lignes de detail"; exit 1
+          fi
+          # Et surtout : l'autre controle est reste visible. C'est le defaut
+          # rapporte — le plus bruyant emportait le plus utile.
+          if [ "$(printf '%s\n' "$total" | grep -c 'mots (budget 400)')" -ne 3 ]; then
+            echo "::error::atomicity a ete emporte par le repli d'index-drift"; echo "$total"; exit 1
+          fi
+
+          # 2/12 : sous le seuil, l'identite des notes est l'information.
+          gabarit 2
+          minorite=$(./bin/perctl lint "$corpus" || true)
+          if [ "$(printf '%s\n' "$minorite" | grep -c "l'accroche ne reprend pas")" -ne 2 ]; then
+            echo "::error::une minorite doit garder son detail par note"; echo "$minorite"; exit 1
+          fi
+          case "$minorite" in
+            *"constat de processus"*) echo "::error::une minorite ne se replie pas"; echo "$minorite"; exit 1 ;;
+          esac
+          echo "  ✓ 12/12 replie avec sa remediation, 2/12 detaille, atomicity intact"
+
+      # Le repli ne doit jamais suggerer une commande que la politique du
+      # corpus refuse. En regime authored « index --sync » refuse d'ecrire :
+      # index-drift ne s'y declenche pas, et aucun format de sortie ne doit
+      # le proposer. Le meme corpus est d'abord passe en derived — sans quoi
+      # la garde serait verte pour la mauvaise raison, un corpus qui ne
+      # derive pas prouvant seulement qu'il ne derive pas.
+      - name: en regime authored, aucune remediation index --sync n'est suggeree
+        run: |
+          set -euo pipefail
+          # Reprend le corpus de l'etape precedente : douze accroches redigees
+          # a la main, donc douze derives en regime derived.
+          corpus=/tmp/agregation-authored
+          rm -rf "$corpus" && mkdir -p "$corpus"
+          printf '# Index\n\n' > "$corpus/MEMORY.md"
+          for i in $(seq 0 11); do
+            n=$(printf 'reference-note-%02d' "$i")
+            # Trois notes hors budget : un constat qui survit au regime
+            # authored, donc un temoin que le corpus a bien ete lu.
+            corps="Un fait."
+            [ "$i" -lt 3 ] && corps=$(python3 -c "print('mot '*500)")
+            cat > "$corpus/$n.md" <<NOTE
+          ---
+          name: $n
+          description: "Le fait numero $i, enonce assez precisement pour decider du rappel"
+          metadata:
+            type: reference
+            modified: 2026-09-15
+          ---
+
+          $corps
+          NOTE
+            printf -- '- [Reference: note %02d](%s.md) — accroche redigee a la main (%d)\n' "$i" "$n" "$i" >> "$corpus/MEMORY.md"
+          done
+
+          cat > /tmp/authored-lint.yml <<YML
+          version: 1
+          roles:
+            contrainte.memoire: { source: memoire }
+          sources:
+            memoire:
+              adapter: files
+              endpoint: $corpus
+              reliability: declared
+              probe: { cmd: "true" }
+              corpus:
+                index: MEMORY.md
+                index_hook: authored
+          YML
+
+          # En derived — le defaut, sans registre — la remediation est la.
+          derive=$(./bin/perctl lint "$corpus" || true)
+          case "$derive" in
+            *"perctl index --sync"*) ;;
+            *) echo "::error::le corpus temoin ne derive pas : la garde suivante ne prouverait rien"; echo "$derive"; exit 1 ;;
+          esac
+
+          # En authored, aucun format ne doit la proposer.
+          for f in human json github; do
+            sortie=$(./bin/perctl lint --perimeter /tmp/authored-lint.yml --format "$f" || true)
+            case "$sortie" in
+              *"index --sync"*) echo "::error::format $f : une commande refusee par la politique est suggeree"; echo "$sortie"; exit 1 ;;
+            esac
+            # Et le corpus a bien ete lu : sans cela, le silence ci-dessus
+            # serait celui d'un corpus introuvable.
+            case "$sortie" in
+              *"budget 400"*|*'"notes": 12'*) ;;
+              *) echo "::error::format $f : le corpus n'a pas ete lu"; echo "$sortie"; exit 1 ;;
+            esac
+          done
+          echo "  ✓ derive suggere index --sync, authored ne le suggere dans aucun format"
+
       # Une note sans date doit bloquer par defaut, et retomber en simple
       # avertissement quand le corpus le declare. Sans le premier, le trou se
       # reforme ; sans le second, un corpus existant n'a aucune porte de sortie.

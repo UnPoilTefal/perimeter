@@ -53,7 +53,7 @@ func rendu(t *testing.T, c *corpus.Corpus) string {
 		t.Fatalf("lint : %v", err)
 	}
 	var b bytes.Buffer
-	if err := res.Write(&b, "human", false); err != nil {
+	if err := res.Write(&b, report.Rendu{Format: "human"}); err != nil {
 		t.Fatalf("rendu : %v", err)
 	}
 	return b.String()

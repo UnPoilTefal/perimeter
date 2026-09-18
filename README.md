@@ -164,8 +164,40 @@ rappel : une note qui n'y figure pas a été écrite, relue, commitée — et ne
 lue par l'agent. Rien ne le signale sans outillage. Sur le corpus qui a servi à
 développer `perimeter`, 11 notes sur 98 étaient dans ce cas.
 
+### Un contrôle qui touche tout le corpus est un constat de processus
+
+Un contrôle qui parle à chaque ligne cesse d'être lu, **et emporte les autres avec
+lui**. Sur un corpus mesuré de 116 notes, `index-drift` remontait 116 avertissements —
+un par note — qui reléguaient hors de l'écran les 23 `atomicity`, les seuls à demander
+un arbitrage.
+
+Or 116 occurrences ne veulent pas dire « 116 notes sont mauvaises ». Elles veulent dire
+**« le processus qui écrit l'index ne dérive pas les accroches »** : un seul fait,
+répété, avec une remédiation unique. Il est donc rendu une fois, avec sa mesure et sa
+commande :
+
+```
+! index-drift : l'index n'est pas synchronisé (116/116 notes)
+  → perctl index --sync
+```
+
+**Ce qui rend un constat repliable n'est pas son nombre, c'est sa remédiation.** Un
+contrôle n'est replié que s'il porte *une* commande qui répare toutes ses occurrences à
+la fois, indépendamment de l'identité des notes. `atomicity` n'en a pas : chaque note
+trop large demande son propre arbitrage. Même à 100 %, il reste détaillé — replier ses
+constats perdrait la seule information qu'ils portent.
+
+Le taux n'est que le déclencheur : à partir de **90 %** du périmètre examiné, et d'au
+moins **10 occurrences**. En dessous, l'identité des notes *est* l'information, et le
+détail reste. `--verbose` et `--format json` le rendent dans tous les cas.
+
+⚠️ Une remédiation n'est jamais suggérée si la politique du corpus l'interdit. En
+régime `authored`, `index --sync` refuse d'écrire : `index-drift` ne s'y déclenche pas,
+et la suggestion passe par la porte qui garde la commande elle-même.
+
 ```bash
 perctl lint                      # sortie terminal
+perctl lint --verbose            # détaille les contrôles repliés
 perctl lint --format github      # annotations GitHub Actions
 perctl lint --format json        # pour un agent
 perctl lint --strict             # les avertissements font échouer
