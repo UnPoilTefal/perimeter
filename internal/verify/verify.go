@@ -103,14 +103,19 @@ func Run(c *corpus.Corpus, opt Options) (*report.Result, []Outcome, error) {
 	res.Stats["checks_via_source"] = viaSource
 	res.Stats["coverage"] = coverage(c, len(withChecks))
 
-	if len(withChecks) == 0 {
+	// Le rejeu des sondes ne depend pas de l'etat des preuves de notes : un
+	// corpus qui n'en porte aucune est justement celui de quelqu'un qui vient
+	// de poser son registre, et qui veut savoir si ses sources repondent.
+	// Rendre la main ici laissait « --probe-sources » inerte et muet.
+	sonder := opt.ProbeSources && opt.Registry != nil
+	if len(withChecks) == 0 && !sonder {
 		return res, outcomes, nil
 	}
 	if !opt.AllowExec {
 		return res, outcomes, ErrExecRefused
 	}
 
-	if opt.ProbeSources && opt.Registry != nil {
+	if sonder {
 		outcomes = append(outcomes, probeSources(opt, res)...)
 	}
 
@@ -162,35 +167,30 @@ func Run(c *corpus.Corpus, opt Options) (*report.Result, []Outcome, error) {
 // par affirmer sereinement qu'aucun ticket ne contredit, parce que son jeton
 // a expire trois semaines plus tot.
 func probeSources(opt Options, res *report.Result) []Outcome {
+	rap := Sonder(opt.Registry, opt.Timeout)
 	var outcomes []Outcome
-	ok, ko := 0, 0
-	for _, name := range opt.Registry.SourceNames() {
-		cmd, err := opt.Registry.ProbeOf(name)
-		if err != nil {
-			res.Add(report.Finding{
-				Rule: "source", Severity: report.Error, File: opt.Registry.Path,
-				Message: err.Error(),
-			})
-			ko++
-			continue
+	ok := 0
+	for _, s := range rap.Sondes {
+		cr := CheckResult{
+			Cmd: "sonde " + s.Source, Status: s.Status,
+			ExitCode: s.ExitCode, WantExit: s.WantExit,
+			Stdout: s.Stdout, Reason: s.Reason,
 		}
-		cr := runCheck(corpus.Check{Cmd: cmd.Cmd, ExpectExit: cmd.ExpectExit, ExpectStdout: cmd.ExpectStdout}, opt.Timeout)
-		cr.Cmd = "sonde " + name
-		out := Outcome{Note: "source:" + name, Status: cr.Status, Checks: []CheckResult{cr}}
-		outcomes = append(outcomes, out)
-		if cr.Status == "pass" {
+		outcomes = append(outcomes, Outcome{
+			Note: "source:" + s.Source, Status: s.Status, Checks: []CheckResult{cr},
+		})
+		if s.Passe() {
 			ok++
 			continue
 		}
-		ko++
 		res.Add(report.Finding{
 			Rule: "source", Severity: report.Error, File: opt.Registry.Path,
-			Message: fmt.Sprintf("source %s : %s", name, cr.Reason),
+			Message: fmt.Sprintf("source %s : %s", s.Source, s.Reason),
 			Hint:    "tant que la source ne repond pas, les preuves qui en dependent ne prouvent rien",
 		})
 	}
 	res.Stats["sources_ok"] = ok
-	res.Stats["sources_ko"] = ko
+	res.Stats["sources_ko"] = rap.Echecs()
 	return outcomes
 }
 
