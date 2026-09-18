@@ -356,7 +356,8 @@ sources:
 ```
 
 ```bash
-perctl perimeter perimeter.yml   # chaque rôle est-il pourvu, chaque source sondable ?
+perctl perimeter perimeter.yml                     # chaque rôle est-il pourvu, chaque source sondable ?
+perctl perimeter perimeter.yml --probe --allow-exec  # et chaque sonde passe-t-elle vraiment ?
 ```
 
 ### Un rôle porte une source, ou plusieurs
@@ -408,11 +409,44 @@ C'est l'axiome remonté d'un cran. Sans sonde, une boîte qui n'a vérifié que 
 par affirmer sereinement qu'aucun ticket ne contredit — parce que son jeton a expiré trois
 semaines plus tôt.
 
+**Déclarer une sonde n'est pas la passer.** `perctl perimeter` vérifie que chaque source en
+déclare une ; seul le rejeu dit qu'elle y arrive :
+
+```bash
+perctl perimeter perimeter.yml --probe --allow-exec
+```
+
+```
+perimeter.yml — 6 sources, 6 sondes rejouees
+
+  ✓ adr      code de sortie 0, aucune sortie
+  ✗ cluster  code de sortie 1, attendu 0
+      sonde   : curl -sf -o /dev/null -w '%{http_code}' https://api.exemple.internal/healthz
+      sortie  : (aucune sortie)
+      attendu : code de sortie 0, et sortie conforme a /^200$/
+  ✓ depots   code de sortie 0, aucune sortie
+  ✓ memoire  code de sortie 0, aucune sortie
+  ✓ specs    code de sortie 0, aucune sortie
+  ✓ tickets  org/produit
+
+1 sonde sur 6 en echec
+  tant qu'une source ne repond pas, tout ce qui s'y adosse ne prouve rien
+```
+
+Le **code de retour est non nul dès qu'une sonde échoue** : la commande se branche telle quelle
+en CI et en pre-commit. Elle ne demande **aucun corpus** — c'est le registre qu'elle éprouve, et
+c'est ce qui la rend utilisable le jour où l'on pose son premier `perimeter.yml`, avant d'avoir
+attaché la moindre preuve à une note.
+
+Le même rejeu s'ajoute à une vérification de corpus, pour porter sur **les faits, les sources,
+et le registre** en une passe :
+
 ```bash
 perctl verify <corpus> --perimeter perimeter.yml --probe-sources --allow-exec
 ```
 
-La vérification porte alors sur **les faits, les sources, et le registre**.
+`--allow-exec` est exigé dans les deux cas : une sonde est du shell déclaré dans un fichier de
+configuration. Sans le drapeau, la commande refuse explicitement plutôt que de ne rien faire.
 
 ### Une preuve peut renvoyer à une source
 
@@ -457,6 +491,9 @@ avertissements contre **24** avec la politique — mêmes notes, verdicts incomp
 
 **La cohérence est binaire** : chaque rôle est pourvu, chaque source est sondable, aucun
 identifiant n'est en clair. Elle passe ou elle échoue.
+
+Elle se lit **sur le fichier**, sans rien exécuter — donc un registre cohérent peut décrire des
+sources dont aucune ne répond. C'est `--probe` qui tranche cette question-là, et lui seul.
 
 **La maturité ne l'est pas.** Un registre peut être parfaitement valide et pourtant ne pas
 permettre grand-chose. Les remarques de maturité le disent **sans invalider** :

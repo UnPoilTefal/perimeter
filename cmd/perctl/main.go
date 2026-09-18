@@ -45,6 +45,7 @@ const usage = `perctl — savoir si un agent peut agir sur un perimetre
   perctl verify [chemin]   rejoue les preuves attachees aux faits
   perctl index  [chemin]   compare l'index au corpus (--fix pour completer)
   perctl perimeter [reg]   valide le registre des sources du perimetre
+                           (--probe --allow-exec : rejoue les sondes declarees)
   perctl gate <evaluation> derive le verdict de readiness d'une specification
   perctl readiness         etat de sortie de demarrage, et regime qui en decoule
   perctl propose [chemin]  propose une sonde pour les notes qui n'en portent pas
@@ -252,6 +253,12 @@ func cmdVerify(args []string) error {
 		return listerPreuvesModifiees(c, *diffRef)
 	}
 
+	// Sans registre, il n'y a aucune sonde a rejouer. L'accepter en silence
+	// rendait le drapeau inoperant sans le dire.
+	if *probes && reg == nil {
+		return fmt.Errorf("--probe-sources demande un registre : l'indiquer avec --perimeter <registre>")
+	}
+
 	// Les preuves sont du shell declare dans des fichiers markdown. Les jouer
 	// sur une contribution venue de l'exterieur revient a executer du code
 	// arbitraire. La regle existait dans la documentation ; elle est ici.
@@ -268,7 +275,17 @@ func cmdVerify(args []string) error {
 	})
 	if errors.Is(err, verify.ErrExecRefused) {
 		n, _ := res.Stats["verifiable"].(int)
-		fmt.Fprintf(os.Stderr, "\n  Ces commandes sont du code executable declare dans des fichiers\n  markdown : ne les lancer que sur un corpus dont on relit les\n  contributions (CODEOWNERS)\n\n") //nolint:errcheck // sortie terminal
+		if n == 0 && *probes {
+			fmt.Fprintf(os.Stderr, "\n  Les sondes sont des commandes declarees dans %s : les\n  rejouer execute ce que ce fichier contient.\n\n", reg.Path) //nolint:errcheck // sortie terminal
+		} else {
+			fmt.Fprintf(os.Stderr, "\n  Ces commandes sont du code executable declare dans des fichiers\n  markdown : ne les lancer que sur un corpus dont on relit les\n  contributions (CODEOWNERS)\n\n") //nolint:errcheck // sortie terminal
+		}
+		// Le refus peut venir des seules sondes : un corpus sans preuve n'en
+		// porte aucune, et annoncer « 0 notes portent des preuves » ferait
+		// passer le refus pour une absence de travail.
+		if n == 0 && *probes {
+			return fmt.Errorf("%d sources declarent une sonde : %w", len(reg.Sources), err)
+		}
 		return fmt.Errorf("%d notes portent des preuves : %w", n, err)
 	}
 	if err != nil {
@@ -284,6 +301,14 @@ func cmdVerify(args []string) error {
 		v, _ := res.Stats["verifiable"].(int)
 		cov, _ := res.Stats["coverage"].(float64)
 		fmt.Printf("%d notes portent une preuve (%.0f%% du corpus)\n", v, cov*100)
+		// Sans ce compte, un rejeu ou tout passe ne se distingue pas d'un
+		// rejeu qui n'a pas eu lieu — c'est exactement ce qui rendait le
+		// drapeau muet.
+		if ok, joue := res.Stats["sources_ok"].(int); joue {
+			ko, _ := res.Stats["sources_ko"].(int)
+			fmt.Printf("%d sondes de source rejouees, %d en echec\n", ok+ko, ko)
+			fmt.Println("  le detail par source : perctl perimeter " + reg.Path + " --probe --allow-exec")
+		}
 	}
 	return fail(res.ExitCode(false))
 }
@@ -394,6 +419,10 @@ func syncIndex(c *corpus.Corpus) error {
 // perimetre n'est pas decrit.
 func cmdPerimeter(args []string) error {
 	fs := flag.NewFlagSet("perimeter", flag.ExitOnError)
+	probe := fs.Bool("probe", false, "rejoue la sonde de chaque source declaree (--allow-exec obligatoire)")
+	allow := fs.Bool("allow-exec", false, "autorise l'execution des sondes declarees au registre")
+	untrusted := fs.Bool("allow-exec-untrusted", false, "executer meme dans un contexte ou le contenu vient de l'exterieur")
+	timeout := fs.Duration("timeout", 0, "delai par sonde (defaut : celui du registre)")
 	root := target(args)
 	_ = fs.Parse(trimPositional(args))
 	if root == "." {
@@ -404,6 +433,23 @@ func cmdPerimeter(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Le rejeu des sondes est la seule chose qui distingue un registre
+	// coherent d'un registre joignable. Il vit ici parce que c'est le
+	// registre qu'il eprouve, et qu'il ne demande aucun corpus.
+	if *probe {
+		if *allow && !*untrusted {
+			if err := refuserContexteNonSur(); err != nil {
+				return err
+			}
+		}
+		code, err := sonderSources(reg, *allow, *timeout, os.Stdout)
+		if err != nil {
+			return err
+		}
+		return fail(code)
+	}
+
 	issues := reg.Check()
 
 	fmt.Printf("%s — %d sources, %d roles sur %d pourvus\n",
@@ -419,7 +465,7 @@ func cmdPerimeter(args []string) error {
 
 	fmt.Println("\n✓ registre coherent : chaque role est pourvu, et chaque source declare une sonde")
 	fmt.Println("  declarer une sonde n'est pas la passer — les rejouer :")
-	fmt.Println("    perctl verify <corpus> --perimeter " + root + " --probe-sources --allow-exec")
+	fmt.Println("    perctl perimeter " + root + " --probe --allow-exec")
 
 	// La coherence est binaire, la maturite ne l'est pas. Ces remarques
 	// n'invalident rien : un registre qui en porte reste utilisable, mais on
@@ -432,6 +478,37 @@ func cmdPerimeter(args []string) error {
 		}
 	}
 	return nil
+}
+
+// sonderSources rejoue les sondes du registre et rend le code de sortie qui
+// en decoule. Il rend un code plutot que d'en sortir lui-meme, pour que le
+// verdict soit eprouvable autrement qu'en lancant un processus.
+func sonderSources(reg *perimeter.Registry, allowExec bool, timeout time.Duration, w io.Writer) (int, error) {
+	// Les sondes sont du shell declare dans un fichier de configuration.
+	// L'autorisation est donc exigee ici comme pour les preuves de notes, et
+	// son absence est dite — se taire rendrait la commande inerte, ce qui est
+	// precisement le defaut qu'on corrige.
+	if !allowExec {
+		fmt.Fprintf(os.Stderr, "\n  Les sondes sont des commandes declarees dans %s : les rejouer\n  execute ce que ce fichier contient.\n\n", reg.Path) //nolint:errcheck // sortie terminal
+		return 0, fmt.Errorf("%d sources declarent une sonde : relancer avec --allow-exec pour les rejouer", len(reg.Sources))
+	}
+	rap := verify.Sonder(reg, timeout)
+	if err := rap.Ecrire(w); err != nil {
+		return 0, err
+	}
+	return rap.ExitCode(), nil
+}
+
+// refuserContexteNonSur applique la meme garde que verify : rejouer du shell
+// declare dans un depot sur une contribution venue de l'exterieur revient a
+// executer du code arbitraire.
+func refuserContexteNonSur() error {
+	v := ciguard.AssessDefault()
+	if v.Trusted {
+		return nil
+	}
+	fmt.Fprintf(os.Stderr, "\n  contexte : %s\n  %s\n\n  Les sondes sont du code declare dans un fichier de configuration : les\n  jouer ici executerait du contenu venu de l'exterieur. Passer outre demande\n  --allow-exec-untrusted, et de savoir pourquoi.\n\n", v.Context, v.Reason) //nolint:errcheck // sortie terminal
+	return fmt.Errorf("execution refusee dans ce contexte")
 }
 
 // Roles rend les roles effectivement pourvus par une source existante.
