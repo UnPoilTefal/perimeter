@@ -134,6 +134,44 @@ jobs:
             exit 1
           fi
 
+      # « draft » sans argument lit l'entree standard. Deux usages s'y croisent
+      # et demandent l'inverse l'un de l'autre : en pipe il ne doit rien
+      # ajouter — la sortie est peut-etre redirigee ; au clavier il doit dire
+      # ce qu'il attend, sinon il parait fige et le reflexe est Ctrl-C.
+      - name: draft annonce l'attente au clavier, et se tait en pipe
+        run: |
+          cat > /tmp/stdin-brouillon.md <<'MD'
+          ---
+          name: reference-lu-sur-stdin
+          description: "Un fait entierement nouveau, enonce assez precisement pour etre jugeable"
+          metadata:
+            type: reference
+            modified: 2026-09-15
+          ---
+
+          Un fait.
+          MD
+          # stdin non-tty : le verdict sur stdout, et rien du tout sur stderr.
+          ./bin/perctl draft --perimeter examples/perimeter.yml \
+            < /tmp/stdin-brouillon.md > /tmp/draft-pipe.out 2> /tmp/draft-pipe.err
+          if [ -s /tmp/draft-pipe.err ]; then
+            echo "::error::stdin redirige : stderr doit rester vide, obtenu $(cat /tmp/draft-pipe.err)"
+            exit 1
+          fi
+          if ! grep -q '^brouillon' /tmp/draft-pipe.out; then
+            echo "::error::le verdict a disparu de la sortie standard"
+            exit 1
+          fi
+          # stdin tty : un vrai terminal demande un pty, « script » en alloue
+          # un. L'entree est vide, donc la commande sortira en erreur — ce qui
+          # compte est que l'annonce soit deja la quand le Ctrl-D arrive.
+          script -q -c "./bin/perctl draft --perimeter examples/perimeter.yml" \
+            /tmp/draft-tty.txt < /dev/null > /dev/null 2>&1 || true
+          if ! grep -q "Ctrl-D pour juger" /tmp/draft-tty.txt; then
+            echo "::error::stdin tty : l'attente n'est pas annoncee — $(cat /tmp/draft-tty.txt)"
+            exit 1
+          fi
+
       # Le parcours d'un nouvel utilisateur : init dans un dossier vide, puis
       # les premieres commandes. C'est ce chemin qui a produit les defauts
       # remontes de l'exterieur — aucune verification ne le prenait, parce

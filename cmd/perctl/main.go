@@ -947,6 +947,7 @@ func cmdDraft(args []string) error {
 
 func lireBrouillon(chemin string) ([]byte, string, error) {
 	if chemin == "" || chemin == "-" {
+		annoncerLectureStdin(os.Stdin, os.Stderr)
 		raw, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return nil, "", err
@@ -961,6 +962,20 @@ func lireBrouillon(chemin string) ([]byte, string, error) {
 		return nil, "", err
 	}
 	return raw, filepath.Base(chemin), nil
+}
+
+// annoncerLectureStdin dit ce que la commande attend quand elle l'attend d'un
+// clavier. Sans ce mot, « perctl draft » sans argument parait fige : il lit
+// l'entree standard, sans rien afficher, et le premier reflexe est Ctrl-C.
+//
+// Rien n'est dit quand l'entree vient d'un pipe ou d'un fichier — c'est le
+// chemin normal de la commande, et il n'y a la personne a prevenir. L'annonce
+// part sur stderr : une sortie redirigee doit rester le seul verdict.
+func annoncerLectureStdin(in *os.File, w io.Writer) {
+	if !term.IsTerminal(int(in.Fd())) {
+		return
+	}
+	fmt.Fprintln(w, "lecture du brouillon sur l'entree standard — Ctrl-D pour juger, Ctrl-C pour annuler") //nolint:errcheck // sortie terminal
 }
 
 // sortie retient la premiere erreur d'ecriture et se tait ensuite : un
