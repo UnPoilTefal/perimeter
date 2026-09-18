@@ -261,12 +261,13 @@ func ruleIndexDrift(c *corpus.Corpus, _ Options, res *report.Result) {
 		return
 	}
 	byRel := c.ByRel()
-	drift := 0
+	drift, examinees := 0, 0
 	for _, e := range c.IndexEntries {
 		n, ok := byRel[e.Target]
 		if !ok || n.ParseErr != nil || e.Hook == "" {
 			continue
 		}
+		examinees++
 		if e.Hook == n.IndexHook() {
 			continue
 		}
@@ -278,6 +279,25 @@ func ruleIndexDrift(c *corpus.Corpus, _ Options, res *report.Result) {
 		})
 	}
 	res.Stats["index_drift"] = drift
+
+	// Une seule commande regenere toutes les accroches d'un coup : la
+	// remediation ne depend pas de l'identite des notes, donc quand la
+	// derive atteint tout l'index, le constat est celui du processus qui
+	// l'ecrit, pas celui de chaque note. Le denominateur est le nombre
+	// d'entrees confrontees, pas le corpus : une note absente de l'index
+	// est un constat d'un autre controle.
+	//
+	// La suggestion passe par la porte qui garde la commande elle-meme :
+	// si « index --sync » refuse d'ecrire ici, on ne le propose pas.
+	// L'invariant tient alors par construction, et non par le fait que la
+	// regle se taise deja en regime authored.
+	if drift > 0 && corpus.SyncIndexAutorise(c) == nil {
+		res.DeclareAgregable("index-drift", report.Agregable{
+			Constat:   "l'index n'est pas synchronise",
+			Fix:       "perctl index --sync",
+			Examinees: examinees,
+		})
+	}
 }
 
 var wikilink = regexp.MustCompile(`\[\[([^\]|#]+)`)

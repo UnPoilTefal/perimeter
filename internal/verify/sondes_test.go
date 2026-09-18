@@ -107,7 +107,7 @@ func registreDepuis(t *testing.T, contenu string) *perimeter.Registry {
 func rendu(t *testing.T, res *report.Result) string {
 	t.Helper()
 	var b strings.Builder
-	if err := res.Write(&b, "human", false); err != nil {
+	if err := res.Write(&b, report.Rendu{Format: "human"}); err != nil {
 		t.Fatal(err)
 	}
 	return b.String()
