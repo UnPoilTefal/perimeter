@@ -9,43 +9,12 @@ import (
 )
 
 // corpusEtRegistre depose un corpus et un registre qui le pilote avec une
-// politique reconnaissable.
+// politique reconnaissable. Le gabarit est celui de posePerimetre : une seule
+// definition, pour que les deux familles de tests parlent du meme registre.
 func corpusEtRegistre(t *testing.T) (corpusDir, regPath string) {
 	t.Helper()
-	racine := t.TempDir()
-	corpusDir = filepath.Join(racine, "memoire")
-	if err := os.MkdirAll(corpusDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// Une accroche redigee : en regime authored elle est legitime, en regime
-	// derived (le defaut) elle produit un constat index-drift.
-	ecrire(t, filepath.Join(corpusDir, "MEMORY.md"),
-		"# Index\n\n- [Reference: un](reference-un.md) — le piege, formule pour l'humain\n")
-	ecrire(t, filepath.Join(corpusDir, "reference-un.md"),
-		"---\nname: reference-un\ndescription: \"Le port 9 de l'UDM Pro est le WAN2, indiscernable d'un port LAN libre\"\n"+
-			"metadata:\n  type: reference\n  modified: 2026-09-01\n---\n\nUn fait.\n")
-
-	regPath = filepath.Join(racine, perimeter.File)
-	ecrire(t, regPath, `version: 1
-roles:
-  intention.spec:       { source: m }
-  intention.tickets:    { source: m }
-  contrainte.decisions: { source: m }
-  contrainte.memoire:   { source: m }
-  etat.declare:         { source: m }
-  etat.reel:            { source: m }
-sources:
-  m:
-    adapter: files
-    reliability: declared
-    endpoint: "`+corpusDir+`"
-    probe:
-      cmd: "true"
-    corpus:
-      index: MEMORY.md
-      index_hook: authored
-`)
-	return corpusDir, regPath
+	regPath = posePerimetre(t, filepath.Join(t.TempDir(), perimeter.File))
+	return filepath.Join(filepath.Dir(regPath), "memoire"), regPath
 }
 
 func ecrire(t *testing.T, p, contenu string) {
