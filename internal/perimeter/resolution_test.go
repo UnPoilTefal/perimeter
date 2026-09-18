@@ -92,7 +92,7 @@ func TestLEchecNommeLesEndroitsCherches(t *testing.T) {
 	if _, _, ok := Resoudre(travail, maison); ok {
 		t.Fatal("aucun registre ne doit etre trouve")
 	}
-	msg := Introuvable(travail, maison)
+	msg := Introuvable(travail, maison, "indiquer un chemin avec --perimeter")
 	for _, attendu := range []string{"PERIMETER", travail, maison} {
 		if !strings.Contains(msg, attendu) {
 			t.Errorf("le message doit citer %q, obtenu :\n%s", attendu, msg)

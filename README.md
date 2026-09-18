@@ -775,6 +775,16 @@ intention, la taire le ferait travailler sur un autre périmètre sans le savoir
 Quand rien ne répond, le message dit **où l'outil a cherché** — un constat d'absence qui laisse le
 diagnostic à l'utilisateur est précisément ce qui fait vivre ce genre de défaut sans qu'il soit vu.
 
+⚠️ **Toutes les sous-commandes empruntent cet ordre**, `perctl perimeter` comprise. Elle en est la
+seule exception de forme : son chemin positionnel **est** le registre — c'est son sujet, pas un
+modificateur — et il y tient donc la place du niveau 1. Elle n'a pas de `--perimeter`, qui dirait
+deux fois la même chose.
+
+```bash
+perctl perimeter                       # le registre est cherché, comme pour lint
+perctl perimeter chemin/perimeter.yml  # ou désigné, et il prime alors sur la recherche
+```
+
 ### Vérifier un brouillon — `perctl draft`
 
 Le portillon ne se mécanise pas : les trois questions sont des jugements, et un

@@ -50,7 +50,12 @@ func Resoudre(depuis, utilisateur string) (chemin, provenance string, ok bool) {
 // Introuvable dit ou l'outil a cherche. Un message qui se contente de
 // constater l'absence laisse tout le diagnostic a l'utilisateur — c'est ce qui
 // a fait vivre le defaut sans qu'il soit vu.
-func Introuvable(depuis, utilisateur string) string {
+//
+// designation dit comment nommer un registre a la main sur la sous-commande
+// qui appelle : ce n'est pas partout le meme argument. Conseiller un drapeau
+// qui n'existe pas la ou l'on est renverrait sur « flag provided but not
+// defined » — un diagnostic qui envoie dans le mur en vaut a peine un.
+func Introuvable(depuis, utilisateur, designation string) string {
 	msg := fmt.Sprintf("aucun %s trouve. Cherche, dans cet ordre :\n", File)
 	msg += fmt.Sprintf("  1. la variable d'environnement %s (%s)\n", EnvVar, valeurOuVide(os.Getenv(EnvVar)))
 	if depuis != "" {
@@ -59,7 +64,7 @@ func Introuvable(depuis, utilisateur string) string {
 	if utilisateur != "" {
 		msg += fmt.Sprintf("  3. %s\n", filepath.Join(utilisateur, File))
 	}
-	msg += "\nindiquer un chemin avec --perimeter, exporter " + EnvVar + ", ou ecrire un registre avec « perctl init »"
+	msg += "\n" + designation + ", exporter " + EnvVar + ", ou ecrire un registre avec « perctl init »"
 	return msg
 }
 
