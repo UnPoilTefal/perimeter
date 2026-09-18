@@ -376,6 +376,145 @@ jobs:
             exit 1
           fi
 
+      # « perimeter » est la sous-commande dont le metier est d'inspecter le
+      # registre, et c'etait la seule a ne pas savoir le trouver : elle ouvrait
+      # perimeter.yml dans le repertoire courant pendant que lint et verify
+      # empruntaient l'ordre de resolution ci-dessus (#66). La regression de
+      # parcours etait silencieuse — ramener un registre a l'emplacement par
+      # defaut, donc retirer la variable, laissait lint marcher et arretait
+      # perimeter, sans que rien n'annonce que les deux ne se resolvent pas
+      # pareil.
+      #
+      # La garde ne se contente donc pas de constater que la commande trouve
+      # *un* registre : elle compare celui qu'elle retient a celui de lint.
+      # Chaque registre pilote le corpus pose a cote de lui, ce qui rend le
+      # choix de lint lisible dans le « root » de sa sortie JSON. Et deux
+      # registres repondent dans le second cas — un par remontee, un a
+      # l'emplacement utilisateur : avec un seul candidat, une implementation
+      # qui ne consulterait que l'emplacement utilisateur serait verte.
+      - name: perimeter resout le registre comme lint
+        run: |
+          set -euo pipefail
+          bin="$GITHUB_WORKSPACE/bin/perctl"
+          base=$(mktemp -d)
+
+          poser() { # $1 = repertoire qui portera le registre, a cote de son corpus
+            mkdir -p "$1/memoire"
+            printf '# Index\n\n- [Reference: un](reference-un.md) — accroche redigee a la main\n' > "$1/memoire/MEMORY.md"
+            cat > "$1/memoire/reference-un.md" <<'NOTE'
+          ---
+          name: reference-un
+          description: "Le port 9 de l'UDM Pro est le WAN2, indiscernable d'un port LAN libre"
+          metadata:
+            type: reference
+            modified: 2026-09-15
+          ---
+
+          Un fait.
+          NOTE
+            cat > "$1/perimeter.yml" <<YML
+          version: 1
+          roles:
+            intention.spec:       { source: m }
+            intention.tickets:    { source: m }
+            contrainte.decisions: { source: m }
+            contrainte.memoire:   { source: m }
+            etat.declare:         { source: m }
+            etat.reel:            { source: m }
+          sources:
+            m:
+              adapter: files
+              reliability: declared
+              endpoint: "$1/memoire"
+              probe: { cmd: "true" }
+              corpus:
+                index: MEMORY.md
+                index_hook: authored
+          YML
+          }
+
+          # Les deux tolerent l'echec : un registre introuvable doit rendre le
+          # constat explicite plus bas, pas interrompre l'etape sans rien dire.
+          registreDeLint() {
+            { "$bin" lint --format json 2>/dev/null || true; } | python3 -c \
+              'import json,os,sys
+          raw = sys.stdin.read()
+          print(os.path.join(os.path.dirname(json.loads(raw)["root"]), "perimeter.yml") if raw.strip() else "(aucun)")'
+          }
+          registreDePerimeter() { { "$bin" perimeter 2>/dev/null || true; } | head -1 | awk '{print $1}'; }
+
+          poser "$base/xdg/perimeter"
+          poser "$base/depot"
+          mkdir -p "$base/tour" "$base/depot/sous" "$base/vide" "$base/xdg-vide"
+          export XDG_CONFIG_HOME="$base/xdg"
+          unset PERIMETER || true
+
+          # Tour de controle : rien en remontee, un registre a l'emplacement
+          # utilisateur. C'est le cas exact du rapport.
+          cd "$base/tour"
+          lint=$(registreDeLint); per=$(registreDePerimeter)
+          if [ "$lint" != "$per" ]; then
+            echo "::error::registres divergents — lint: $lint / perimeter: $per"; exit 1
+          fi
+          if [ "$lint" != "$base/xdg/perimeter/perimeter.yml" ]; then
+            echo "::error::l'emplacement utilisateur n'a pas ete retenu : $lint"; exit 1
+          fi
+
+          # Deux registres repondent : la remontee prime, des deux cotes.
+          cd "$base/depot/sous"
+          lint=$(registreDeLint); per=$(registreDePerimeter)
+          if [ "$lint" != "$per" ]; then
+            echo "::error::registres divergents — lint: $lint / perimeter: $per"; exit 1
+          fi
+          if [ "$lint" != "$base/depot/perimeter.yml" ]; then
+            echo "::error::la remontee devait primer sur l'emplacement utilisateur : $lint"; exit 1
+          fi
+
+          # Aucun registre : la liste des emplacements cherches, et surtout
+          # aucune erreur brute de « open » — c'est la classe de defaut que les
+          # diagnostics de premier contact visaient.
+          cd "$base/vide"
+          set +e
+          sortie=$(XDG_CONFIG_HOME="$base/xdg-vide" "$bin" perimeter 2>&1); code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            echo "::error::sans registre, la commande doit echouer"; exit 1
+          fi
+          for attendu in "aucun perimeter.yml trouve" "PERIMETER" "perctl init"; do
+            case "$sortie" in
+              *"$attendu"*) ;;
+              *) echo "::error::le diagnostic ne cite pas $attendu : $sortie"; exit 1 ;;
+            esac
+          done
+          case "$sortie" in
+            *"no such file or directory"*) echo "::error::l'erreur brute de open remonte encore : $sortie"; exit 1 ;;
+          esac
+          # Le conseil doit designer un moyen qui existe ici : « perimeter » n'a
+          # pas de --perimeter, son chemin positionnel etant deja le registre.
+          case "$sortie" in
+            *--perimeter*) echo "::error::un drapeau absent de cette sous-commande est conseille : $sortie"; exit 1 ;;
+          esac
+
+          # Une piste explicite qui ne repond pas se dit, et ne retombe pas en
+          # silence sur le registre utilisateur — qui existe pourtant ici.
+          cd "$base/tour"
+          set +e
+          sortie=$(PERIMETER="$base/nexiste-pas.yml" "$bin" perimeter 2>&1); code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            echo "::error::un PERIMETER pointant un fichier absent doit etre signale, pas ignore"; exit 1
+          fi
+          for attendu in "PERIMETER" "nexiste-pas.yml" "effacer"; do
+            case "$sortie" in
+              *"$attendu"*) ;;
+              *) echo "::error::le message ne cite pas $attendu : $sortie"; exit 1 ;;
+            esac
+          done
+          case "$sortie" in
+            *"$base/xdg/perimeter/perimeter.yml"*) echo "::error::retombee silencieuse sur le registre utilisateur : $sortie"; exit 1 ;;
+          esac
+          echo "  ✓ meme registre que lint dans les deux cas, diagnostic rendu dans les deux autres"
+
       # « harvest » lit par execution : il doit refuser sans --allow-exec, et
       # ne jamais rien ecrire quand il s'execute. Les deux, pas l'un ou l'autre.
       - name: harvest refuse sans --allow-exec et n'ecrit rien

@@ -45,7 +45,8 @@ const usage = `perctl — savoir si un agent peut agir sur un perimetre
   perctl verify [chemin]   rejoue les preuves attachees aux faits
   perctl index  [chemin]   compare l'index au corpus (--fix pour completer)
   perctl perimeter [reg]   valide le registre des sources du perimetre
-                           (--probe --allow-exec : rejoue les sondes declarees)
+                           (sans [reg] : meme recherche que lint ;
+                            --probe --allow-exec : rejoue les sondes declarees)
   perctl gate <evaluation> derive le verdict de readiness d'une specification
   perctl readiness         etat de sortie de demarrage, et regime qui en decoule
   perctl propose [chemin]  propose une sonde pour les notes qui n'en portent pas
@@ -65,6 +66,9 @@ Le registre est cherche, dans cet ordre : --perimeter, la variable PERIMETER,
 la remontee d'arborescence depuis le repertoire courant, puis
 ~/.config/perimeter/perimeter.yml — ce dernier niveau sert l'usage « tour de
 controle », ou l'on travaille depuis un repertoire central sans registre.
+Toutes les sous-commandes empruntent cette recherche, « perimeter » comprise ;
+elle seule n'a pas de --perimeter, son chemin positionnel etant deja le
+registre.
 `
 
 func main() {
@@ -166,13 +170,9 @@ func resolveCorpus(path, regPath string) (*corpus.Corpus, *perimeter.Registry, e
 		return c, reg, err
 	}
 	if regPath == "" {
-		found, provenance, ok := perimeter.Resoudre(".", perimeter.DossierUtilisateur())
-		if !ok {
-			if provenance == perimeter.EnvVar {
-				return nil, nil, fmt.Errorf("%s pointe %q, qui n'existe pas — corriger la variable, ou l'effacer pour laisser la recherche se faire",
-					perimeter.EnvVar, os.Getenv(perimeter.EnvVar))
-			}
-			return nil, nil, fmt.Errorf("%s", perimeter.Introuvable(".", perimeter.DossierUtilisateur()))
+		found, err := resolveRegistre(".", designerParDrapeau)
+		if err != nil {
+			return nil, nil, err
 		}
 		regPath = found
 	}
@@ -192,6 +192,40 @@ func resolveCorpus(path, regPath string) (*corpus.Corpus, *perimeter.Registry, e
 	}
 	c, err := corpus.LoadWith(root, corpus.ConfigFromPolicy(policy))
 	return c, reg, err
+}
+
+// Conseils de designation d'un registre a la main. Ils different par
+// sous-commande, parce que ce n'est pas le meme argument qui le nomme :
+// --perimeter la ou le positionnel designe un corpus, le positionnel lui-meme
+// la ou le registre *est* le sujet. Le reste du diagnostic — les emplacements
+// cherches, la piste explicite qui ne repond pas — n'a qu'une definition.
+const (
+	designerParDrapeau  = "indiquer un chemin avec --perimeter"
+	designerParArgument = "donner le registre en argument : « perctl perimeter <registre> »"
+)
+
+// resolveRegistre applique l'ordre de resolution du registre — PERIMETER, la
+// remontee d'arborescence depuis depuis, puis l'emplacement utilisateur — et
+// rend, a defaut, le diagnostic qui dit ou l'outil a cherche.
+//
+// Elle est partagee par resolveCorpus et par « perctl perimeter ». C'est le
+// fond de #66 : « perimeter » ouvrait perimeter.yml dans le repertoire
+// courant pendant que lint et verify remontaient l'arborescence, et rien
+// n'annoncait que les sous-commandes ne se resolvaient pas pareil. Deux
+// copies de cette regle, c'est la garantie qu'elles divergeront de nouveau.
+func resolveRegistre(depuis, designation string) (string, error) {
+	found, provenance, ok := perimeter.Resoudre(depuis, perimeter.DossierUtilisateur())
+	if ok {
+		return found, nil
+	}
+	// Une piste explicite qui ne repond pas n'est pas ignoree : retomber en
+	// silence sur un autre registre ferait travailler sur un perimetre que
+	// l'utilisateur n'a pas nomme.
+	if provenance == perimeter.EnvVar {
+		return "", fmt.Errorf("%s pointe %q, qui n'existe pas — corriger la variable, ou l'effacer pour laisser la recherche se faire",
+			perimeter.EnvVar, os.Getenv(perimeter.EnvVar))
+	}
+	return "", fmt.Errorf("%s", perimeter.Introuvable(depuis, perimeter.DossierUtilisateur(), designation))
 }
 
 func target(args []string) string {
@@ -424,10 +458,32 @@ func cmdPerimeter(args []string) error {
 	allow := fs.Bool("allow-exec", false, "autorise l'execution des sondes declarees au registre")
 	untrusted := fs.Bool("allow-exec-untrusted", false, "executer meme dans un contexte ou le contenu vient de l'exterieur")
 	timeout := fs.Duration("timeout", 0, "delai par sonde (defaut : celui du registre)")
-	root := target(args)
+	// Le registre est ici le sujet de la commande, pas un modificateur : il se
+	// donne en argument, et cette sous-commande n'a donc pas de --perimeter,
+	// qui dirait deux fois la meme chose. L'aide le dit, plutot que de laisser
+	// « flag provided but not defined » l'expliquer.
+	fs.Usage = func() {
+		aide := fmt.Sprintf("perctl perimeter [registre] [options]\n\n"+
+			"Le chemin donne en argument EST le registre : pas de --perimeter ici, il\n"+
+			"dirait la meme chose deux fois. Sans argument, le registre est cherche\n"+
+			"comme pour lint et verify : %s, remontee d'arborescence, puis\n"+
+			"emplacement utilisateur.\n\n", perimeter.EnvVar)
+		fmt.Fprint(fs.Output(), aide) //nolint:errcheck // sortie terminal
+		fs.PrintDefaults()
+	}
+	root := positional(args)
 	_ = fs.Parse(trimPositional(args))
-	if root == "." {
-		root = perimeter.File
+	// Un chemin positionnel dit *quel registre* — il prime, exactement comme
+	// un chemin dit *quel corpus* pour lint (#54). Sans lui, la sous-commande
+	// dont le metier est d'inspecter le registre emprunte l'ordre de
+	// resolution des autres, au lieu d'ouvrir perimeter.yml la ou elle est
+	// lancee.
+	if root == "" {
+		found, err := resolveRegistre(".", designerParArgument)
+		if err != nil {
+			return err
+		}
+		root = found
 	}
 
 	reg, err := perimeter.Load(root)
