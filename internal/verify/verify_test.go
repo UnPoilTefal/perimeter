@@ -247,15 +247,7 @@ func corpusAvec(t *testing.T, notes map[string]string) string {
 
 func registre(t *testing.T) *perimeter.Registry {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), perimeter.File)
-	if err := os.WriteFile(p, []byte(registreTest), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	reg, err := perimeter.Load(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return reg
+	return registreDepuis(t, registreTest)
 }
 
 // Test d'acceptation 3 — une preuve peut renvoyer a une source declaree,
