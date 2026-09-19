@@ -269,10 +269,22 @@ que de désactiver `staleness` en entier, ce qui lui ferait perdre aussi la dét
 **Combler les dates d'abord, durcir ensuite** : l'inverse fait basculer d'un coup toutes les notes
 sans date en erreur, et la règle est désactivée avant d'avoir servi.
 
-Le budget de relecture est **unique pour tout le corpus** — `policy.staleness.review_after_days`.
-Une demi-vie par type, un chemin se périmant plus vite qu'une convention, se défend en principe
-mais n'est pas implémentée : la différencier demanderait des observations qu'aucun corpus n'a
-encore produites. Suivi en [#38](https://github.com/UnPoilTefal/perimeter/issues/38).
+Le budget de relecture a deux paliers, selon la sondabilité d'une note —
+`policy.staleness.probed_review_after_days` pour une note qui porte une
+sonde scriptée (la rejouer ne coûte rien, le palier reste serré) et
+`policy.staleness.unprobed_review_after_days` pour le reste (revalider
+coûte un humain, le palier reste large). `review_after_days` reste un
+alias rétrocompatible des deux quand ils sont absents. Remplace la piste
+de la demi-vie par type de note, restée bloquée faute de données pour la
+calibrer ([#38](https://github.com/UnPoilTefal/perimeter/issues/38)).
+
+**`perctl reliability check <ref>`** lit l'index de fiabilité du périmètre
+(`perimeter.reliability.jsonl`, à côté du registre) et rend un verdict —
+statut, fraîcheur, dérive de contenu — pour une référence qu'un agent
+s'apprête à réutiliser. L'index et son format complet restent à documenter
+ici à mesure que `reliability confirm`/`audit` (l'écriture) se posent
+([#68](https://github.com/UnPoilTefal/perimeter/issues/68)) ; ce
+paragraphe n'annonce que la lecture, déjà livrée.
 
 **Deux règles de sûreté, chacune née d'une erreur constatée :**
 

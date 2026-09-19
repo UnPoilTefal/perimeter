@@ -1280,7 +1280,7 @@ func cmdReliabilityCheck(args []string) error {
 		return fmt.Errorf("usage : perctl reliability check <ref>")
 	}
 
-	_, reg, err := resolveCorpus("", *regPath)
+	c, reg, err := resolveCorpus("", *regPath)
 	if err != nil {
 		return err
 	}
@@ -1291,12 +1291,7 @@ func cmdReliabilityCheck(args []string) error {
 	if err != nil {
 		return err
 	}
-	_, _, policy, err := reg.CorpusSource()
-	if err != nil {
-		return err
-	}
-	cfg := corpus.ConfigFromPolicy(policy)
-	v := reliability.Check(entries, ref, filepath.Dir(reg.Path), cfg.UnprobedBudget(), time.Now())
+	v := reliability.Check(entries, ref, filepath.Dir(reg.Path), c.Config.UnprobedBudget(), time.Now())
 
 	fmt.Printf("%s : %s\n", ref, v.Status)
 	fmt.Printf("  %s\n", v.Detail)
