@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/UnPoilTefal/perimeter/internal/advisory"
 	"github.com/UnPoilTefal/perimeter/internal/ciguard"
 	"github.com/UnPoilTefal/perimeter/internal/claim"
 	"github.com/UnPoilTefal/perimeter/internal/corpus"
@@ -199,6 +200,60 @@ func resolveCorpus(path, regPath string) (*corpus.Corpus, *perimeter.Registry, e
 	return c, reg, err
 }
 
+// avisAmbiant calcule et affiche l'avis ambiant sur stderr juste apres
+// qu'une sous-commande a resolu son registre/corpus, et rend son contenu
+// pour les sorties JSON qui le supportent deja. reuse porte le
+// report.Result deja calcule par l'appelant (cmdLint) pour eviter un
+// second passage de lint ; nil partout ailleurs.
+//
+// Les echecs de chargement (lint ou index de fiabilite) sont convertis ici
+// en avis "indisponible" — jamais remontes comme l'erreur de la
+// sous-commande elle-meme : l'avis ambiant ne doit jamais devenir un point
+// de panne pour le reste de l'outil.
+func avisAmbiant(reg *perimeter.Registry, c *corpus.Corpus, reuse *report.Result) []string {
+	afficher := func(a advisory.Advisory) []string {
+		if ligne := a.Ligne(); ligne != "" {
+			fmt.Fprintln(os.Stderr, ligne) //nolint:errcheck // sortie terminal
+		}
+		return a.Warnings()
+	}
+
+	// c est optionnel : « perctl gate » peut ne recevoir qu'un registre, sans
+	// --corpus. Sans corpus, il n'y a rien a linter, et lintRes reste nil —
+	// Compute sait deja s'en passer.
+	var lintRes *report.Result
+	var scope string
+	if reuse != nil {
+		lintRes = reuse
+	} else if c != nil {
+		var err error
+		lintRes, err = lint.Run(c, lint.Options{})
+		if err != nil {
+			return afficher(advisory.Advisory{Unavailable: true, Cause: err.Error()})
+		}
+	}
+	if c != nil {
+		scope = c.Root
+	}
+
+	var entries []reliability.Entry
+	var root string
+	budget := 0
+	if reg != nil {
+		var err error
+		entries, err = reliability.Load(reliability.IndexPath(reg.Path))
+		if err != nil {
+			return afficher(advisory.Advisory{Unavailable: true, Cause: err.Error()})
+		}
+		root = filepath.Dir(reg.Path)
+		if c != nil {
+			budget = c.Config.UnprobedBudget()
+		}
+	}
+
+	return afficher(advisory.Compute(reg, lintRes, entries, root, budget, time.Now(), scope))
+}
+
 // Conseils de designation d'un registre a la main. Ils different par
 // sous-commande, parce que ce n'est pas le meme argument qui le nomme :
 // --perimeter la ou le positionnel designe un corpus, le positionnel lui-meme
@@ -256,7 +311,7 @@ func cmdLint(args []string) error {
 	path := positional(args)
 	_ = fs.Parse(trimPositional(args))
 
-	c, _, err := resolveCorpus(path, *regPath)
+	c, reg, err := resolveCorpus(path, *regPath)
 	if err != nil {
 		return err
 	}
@@ -264,6 +319,9 @@ func cmdLint(args []string) error {
 	if err != nil {
 		return err
 	}
+	// lint a deja calcule ce dont l'avis ambiant a besoin : le lui passer
+	// evite un second passage identique sur le meme corpus.
+	avisAmbiant(reg, c, res)
 	if err := emit(res, *format, *verbose); err != nil {
 		return err
 	}
@@ -288,6 +346,7 @@ func cmdVerify(args []string) error {
 	if err != nil {
 		return err
 	}
+	avisAmbiant(reg, c, nil)
 
 	if *diffRef != "" {
 		return listerPreuvesModifiees(c, *diffRef)
@@ -361,10 +420,11 @@ func cmdIndex(args []string) error {
 	path := positional(args)
 	_ = fs.Parse(trimPositional(args))
 
-	c, _, err := resolveCorpus(path, *regPath)
+	c, reg, err := resolveCorpus(path, *regPath)
 	if err != nil {
 		return err
 	}
+	avisAmbiant(reg, c, nil)
 	if !c.HasIndex {
 		return fmt.Errorf("aucun index lisible en %s", filepath.Join(c.Root, c.Config.Corpus.Index))
 	}
@@ -495,6 +555,9 @@ func cmdPerimeter(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Pas d'avis ambiant ici, deliberement : cette sous-commande affiche deja
+	// les issues de Registry.Check() ci-dessous, c'est son sujet. Le repeter
+	// en avis ambiant redirait la meme chose deux fois dans la meme sortie.
 
 	// Le rejeu des sondes est la seule chose qui distingue un registre
 	// coherent d'un registre joignable. Il vit ici parce que c'est le
@@ -621,6 +684,7 @@ func cmdGate(args []string) error {
 	if err != nil {
 		return err
 	}
+	avisAmbiantGate(*regPath, *corpusPath)
 
 	if *allow {
 		if !*untrusted {
@@ -669,6 +733,32 @@ func cmdGate(args []string) error {
 	default:
 		return fail(2)
 	}
+}
+
+// avisAmbiantGate adapte l'avis ambiant au modele de resolution propre a
+// « gate » : --perimeter et --corpus y sont optionnels et independants,
+// sans la recherche ambiante des autres sous-commandes — preconditions()
+// vient deja de les charger une fois avec succes, donc un second
+// chargement ici n'a pas de raison d'echouer differemment ; s'il echoue
+// quand meme, il se rapporte comme "indisponible" plutot qu'en silence.
+func avisAmbiantGate(regPath, corpusPath string) {
+	var reg *perimeter.Registry
+	var c *corpus.Corpus
+	if regPath != "" {
+		var err error
+		if reg, err = perimeter.Load(regPath); err != nil {
+			fmt.Fprintln(os.Stderr, (advisory.Advisory{Unavailable: true, Cause: err.Error()}).Ligne()) //nolint:errcheck // sortie terminal
+			return
+		}
+	}
+	if corpusPath != "" {
+		var err error
+		if c, err = corpus.Load(corpusPath); err != nil {
+			fmt.Fprintln(os.Stderr, (advisory.Advisory{Unavailable: true, Cause: err.Error()}).Ligne()) //nolint:errcheck // sortie terminal
+			return
+		}
+	}
+	avisAmbiant(reg, c, nil)
 }
 
 // preconditions rassemble ce que l'outil sait verifier seul : la couverture
@@ -891,6 +981,7 @@ func cmdPropose(args []string) error {
 	if err != nil {
 		return err
 	}
+	avisAmbiant(reg, c, nil)
 	// Une commande qui modifie des fichiers doit dire lesquels et ou. Sans
 	// cela, un registre au chemin absolu fait ecrire ailleurs que la ou l'on
 	// croit etre — constate, et corrige ici.
@@ -1066,6 +1157,7 @@ func cmdDraft(args []string) error {
 	if err != nil {
 		return err
 	}
+	warnings := avisAmbiant(reg, c, nil)
 
 	v, err := draft.Check(c, n, reg, draft.Options{Voisins: *voisins})
 	if err != nil {
@@ -1075,7 +1167,9 @@ func cmdDraft(args []string) error {
 	if *format == "json" {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		if err := enc.Encode(draftJSON(n, v)); err != nil {
+		sortie := draftJSON(n, v)
+		sortie.Warnings = warnings
+		if err := enc.Encode(sortie); err != nil {
 			return err
 		}
 	} else if err := ecrireVerdict(os.Stdout, c, n, v); err != nil {
@@ -1200,6 +1294,7 @@ type draftSortie struct {
 	Findings  []report.Finding `json:"findings"`
 	Voisins   []draftVoisin    `json:"voisins"`
 	Verify    *claim.Proposal  `json:"verify,omitempty"`
+	Warnings  []string         `json:"warnings,omitempty"`
 }
 
 type draftVoisin struct {
@@ -1242,6 +1337,8 @@ func cmdHarvest(args []string) error {
 	if reg == nil {
 		return fmt.Errorf("harvest a besoin d'un registre : il ne lit que des sources declarees")
 	}
+	warnings := avisAmbiant(reg, c, nil)
+
 	res, err := harvest.Run(c, reg, harvest.Options{
 		AllowExec: *allow, Depuis: *depuis, Limite: *limite, Voisins: *voisins,
 	})
@@ -1251,9 +1348,17 @@ func cmdHarvest(args []string) error {
 	if *format == "json" {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(res)
+		return enc.Encode(harvestSortie{Result: res, Warnings: warnings})
 	}
 	return ecrireMoisson(os.Stdout, c, res)
+}
+
+// harvestSortie ajoute l'avis ambiant a la sortie JSON de harvest, sans
+// toucher au paquet harvest lui-meme : ses champs sont promus par
+// l'embedding, warnings s'ajoute a cote.
+type harvestSortie struct {
+	*harvest.Result
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // cmdReliability route vers les sous-commandes de l'index de fiabilite.
@@ -1287,6 +1392,8 @@ func cmdReliabilityCheck(args []string) error {
 	if reg == nil {
 		return fmt.Errorf("aucun registre trouve — voir « perctl init »")
 	}
+	avisAmbiant(reg, c, nil)
+
 	entries, err := reliability.Load(reliability.IndexPath(reg.Path))
 	if err != nil {
 		return err
