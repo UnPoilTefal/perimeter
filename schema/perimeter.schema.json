@@ -211,6 +211,14 @@
               "type": "number",
               "minimum": 0,
               "maximum": 1
+            },
+            "probed_review_after_days": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "unprobed_review_after_days": {
+              "type": "integer",
+              "minimum": 1
             }
           }
         },

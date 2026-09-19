@@ -224,7 +224,7 @@ sources:
       index: INDEX.md
       max_body_words: 250
       require_owner: true
-      staleness: { review_after_days: 90, max_stale_ratio: 0.2 }
+      staleness: { review_after_days: 90, max_stale_ratio: 0.2, probed_review_after_days: 15, unprobed_review_after_days: 200 }
       links: { ignore_prefixes: ["/", "@"] }
   depots:   { adapter: git,    reliability: declared, probe: { cmd: "true" } }
   cluster:  { adapter: http,   reliability: measured, probe: { cmd: "true" } }
@@ -255,6 +255,9 @@ func TestLeRegistrePorteLaPolitiqueDuCorpus(t *testing.T) {
 	}
 	if pol.Staleness.ReviewAfterDays != 90 || len(pol.Links.IgnorePrefixes) != 2 {
 		t.Errorf("sous-blocs de politique mal lus : %+v", pol)
+	}
+	if pol.Staleness.ProbedReviewAfterDays != 15 || pol.Staleness.UnprobedReviewAfterDays != 200 {
+		t.Errorf("paliers de staleness mal lus : %+v", pol.Staleness)
 	}
 }
 
