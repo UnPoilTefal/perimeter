@@ -231,7 +231,7 @@ texte, et propose la sonde correspondante :
 
 | Confiance | Signal | Sonde proposée |
 |---|---|---|
-| `registre` | la note cite une source déclarée — `produit#412` | `source: tickets`, `arg: "412"` |
+| `registre` | la note cite une source déclarée — `produit#412`, `PROJ-1234` | `source: tickets`, `arg: "412"` |
 | `structurel` | chemin absolu, URL, hôte, version | `test -e …`, `curl -sfI …` |
 
 **Une proposition de type `chemin` porte toujours un caveat** : `test -e`
