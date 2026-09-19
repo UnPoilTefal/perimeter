@@ -200,7 +200,10 @@ func fromRegistry(n *corpus.Note, body string, reg *perimeter.Registry) (Proposa
 		if s.Endpoint == "" {
 			continue
 		}
-		if !ancrable(s.Endpoint) {
+		// L'ancre jira exige deja un « -<numero> » final : c'est cette
+		// specificite-la qui protege du faux positif, pas la longueur de
+		// l'endpoint — le plancher d'ancrable ne s'applique donc pas ici.
+		if s.Adapter != "jira" && !ancrable(s.Endpoint) {
 			continue
 		}
 		for _, a := range anchorsFor(s.Adapter, s.Endpoint) {

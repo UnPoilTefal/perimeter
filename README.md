@@ -231,7 +231,7 @@ texte, et propose la sonde correspondante :
 
 | Confiance | Signal | Sonde proposée |
 |---|---|---|
-| `registre` | la note cite une source déclarée — `produit#412`, `PROJ-1234` | `source: tickets`, `arg: "412"` |
+| `registre` | la note cite une source déclarée — `produit#412`, `PROJ-1234` | `source: tickets`, `arg: "412"` — ou `source: tickets-jira`, `arg: "PROJ-1234"` |
 | `structurel` | chemin absolu, URL, hôte, version | `test -e …`, `curl -sfI …` |
 
 **Une proposition de type `chemin` porte toujours un caveat** : `test -e`
@@ -391,6 +391,15 @@ sources:
       expect_stdout: "^org/produit$"
     query:
       cmd: "gh api repos/${endpoint}/issues/${arg} --jq .state"
+  tickets-jira:
+    adapter: jira
+    endpoint: PROJ                    # la cle de projet — l'ancre est PROJ-<numero>
+    reliability: measured
+    credential: env:JIRA_TOKEN
+    probe:
+      cmd: "acli jira project view ${endpoint} --json"
+    query:
+      cmd: "acli jira workitem view ${arg}"
 ```
 
 ```bash
