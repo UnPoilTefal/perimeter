@@ -68,6 +68,12 @@ type Proposal struct {
 	Cmd        string
 	Expect     string
 	Why        string
+	// Motif et Consequence portent un caveat de maturite sur la sonde
+	// elle-meme — meme forme que Remarque dans internal/perimeter/maturite.go.
+	// Vides quand la sonde prouve la revendication ; "sonde-d-existence"
+	// quand elle ne prouve que la presence de ce qu'elle sonde.
+	Motif       string
+	Consequence string
 }
 
 // Result agrege une passe de proposition.
@@ -287,14 +293,19 @@ func premierHote(zone string) string {
 func fromStructure(n *corpus.Note, zone, body string) (Proposal, bool) {
 	if m := pathRe.FindStringSubmatch(zone); m != nil {
 		path := trailingRe.ReplaceAllString(m[1], "")
-		cmd, why := "test -e "+path, "mentionne un chemin absolu"
 		if enonceUneAbsence(body, path) {
-			cmd = "! test -e " + path
-			why = "enonce que ce chemin n'existe plus — sonde inversee"
+			return Proposal{
+				Note: n.Rel, Kind: KindPath, Confidence: Structural, Match: path,
+				Cmd: fmt.Sprintf("cmd: %q", "! test -e "+path),
+				Why: "enonce que ce chemin n'existe plus — sonde inversee",
+			}, true
 		}
 		return Proposal{
 			Note: n.Rel, Kind: KindPath, Confidence: Structural, Match: path,
-			Cmd: fmt.Sprintf("cmd: %q", cmd), Why: why,
+			Cmd:         fmt.Sprintf("cmd: %q", "test -e "+path),
+			Why:         "mentionne un chemin absolu",
+			Motif:       "sonde-d-existence",
+			Consequence: "prouve que le chemin est la, pas ce que la note affirme a son sujet",
 		}, true
 	}
 	if m := urlRe.FindString(zone); m != "" {
@@ -346,6 +357,9 @@ func Write(c *corpus.Corpus, proposals []Proposal) (int, error) {
 		var b strings.Builder
 		b.WriteString("  # sonde proposee par « perctl propose » — relire, puis decommenter\n")
 		fmt.Fprintf(&b, "  # type %s · confiance %s · %s\n", p.Kind.Name, p.Confidence, p.Why)
+		if p.Motif != "" {
+			fmt.Fprintf(&b, "  # ~ [%s] %s\n", p.Motif, p.Consequence)
+		}
 		b.WriteString("  # verify:\n")
 		for _, line := range strings.Split(p.Cmd, "\n") {
 			fmt.Fprintf(&b, "  #   - %s\n", strings.TrimSpace(line))
