@@ -256,6 +256,12 @@ func anchorsFor(adapter, endpoint string) []anchor {
 			{regexp.MustCompile(`\b` + regexp.QuoteMeta(repo) + `#(\d+)\b`), KindIssue},
 			{regexp.MustCompile(regexp.QuoteMeta(endpoint)), KindRepo},
 		}
+	case "jira":
+		// La cle de ticket porte le prefixe de projet declare par l'endpoint,
+		// jamais un motif jira generique qui ancrerait n'importe quel projet.
+		return []anchor{
+			{regexp.MustCompile(`\b(` + regexp.QuoteMeta(endpoint) + `-\d+)\b`), KindIssue},
+		}
 	case "files", "git":
 		return []anchor{{regexp.MustCompile(regexp.QuoteMeta(endpoint)), KindPath}}
 	default:

@@ -27,6 +27,12 @@ sources:
     reliability: measured
     probe: { cmd: "true" }
     query: { cmd: "gh api repos/${endpoint}/issues/${arg} --jq .state" }
+  tickets-jira:
+    adapter: jira
+    endpoint: "PROJ"
+    reliability: measured
+    probe: { cmd: "true" }
+    query: { cmd: "acli jira workitem view ${arg}" }
   memoire:  { adapter: files,  endpoint: ".",          reliability: declared, probe: { cmd: "true" } }
   depot:    { adapter: git,    endpoint: "/srv/repo",  reliability: declared, probe: { cmd: "true" } }
   cluster:  { adapter: shell,  endpoint: "ctx@app",    reliability: measured, probe: { cmd: "true" } }
@@ -86,6 +92,38 @@ func TestAncrageAuRegistrePrimeSurLeStructurel(t *testing.T) {
 	}
 	if !strings.Contains(p.Cmd, `arg: "412"`) {
 		t.Errorf("le numero doit etre repris comme argument : %q", p.Cmd)
+	}
+}
+
+// La cle de ticket porte le prefixe de projet declare par l'endpoint — pas
+// un motif jira generique, qui ancrerait n'importe quel projet.
+func TestUneCleDeTicketJiraSAncreAuRegistre(t *testing.T) {
+	c, reg := setup(t, map[string]string{
+		"reference-jira": "PROJ-1234 est une Feature du T4, toujours en cours.",
+	})
+	r := Propose(c, reg)
+	p, ok := find(r, "reference-jira")
+	if !ok {
+		t.Fatal("une proposition etait attendue")
+	}
+	if p.Confidence != FromRegistry || p.Source != "tickets-jira" {
+		t.Errorf("ancrage registre tickets-jira attendu, obtenu %s/%s", p.Confidence, p.Source)
+	}
+	if !strings.Contains(p.Cmd, `arg: "PROJ-1234"`) {
+		t.Errorf("la cle complete doit etre reprise comme argument : %q", p.Cmd)
+	}
+}
+
+// Une cle d'un autre projet ne doit jamais s'ancrer sur la source « PROJ » :
+// l'ancre doit porter le prefixe exact de l'endpoint declare, pas un motif
+// jira générique qui matcherait n'importe quel projet.
+func TestUneCleDunAutreProjetNAncrePas(t *testing.T) {
+	c, reg := setup(t, map[string]string{
+		"reference-autre-projet": "AUTRE-99 concerne un produit different.",
+	})
+	r := Propose(c, reg)
+	if p, ok := find(r, "reference-autre-projet"); ok {
+		t.Errorf("aucune proposition attendue pour un projet different, obtenu %+v", p)
 	}
 }
 
