@@ -1,6 +1,8 @@
 package advisory
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -28,7 +30,7 @@ func registreComplet() *perimeter.Registry {
 }
 
 func TestEmptyQuandRienASignaler(t *testing.T) {
-	a := Compute(registreComplet(), &report.Result{}, nil, t.TempDir(), 30, now)
+	a := Compute(registreComplet(), &report.Result{}, nil, t.TempDir(), 30, now, "")
 	if !a.Empty() {
 		t.Errorf("attendu Empty(), obtenu %+v", a)
 	}
@@ -40,7 +42,7 @@ func TestLiensCompteLesConstatsWikilink(t *testing.T) {
 		{Rule: "wikilink", File: "b.md"},
 		{Rule: "description", File: "c.md"}, // nit editorial, ne doit pas compter
 	}}
-	a := Compute(nil, res, nil, "", 0, now)
+	a := Compute(nil, res, nil, "", 0, now, "")
 	if a.Liens != 2 {
 		t.Errorf("Liens = %d, attendu 2", a.Liens)
 	}
@@ -51,11 +53,11 @@ func TestLiensCompteLesConstatsWikilink(t *testing.T) {
 
 func TestPeremptionCompteLeConstatAgregeMasPasLeParNote(t *testing.T) {
 	res := &report.Result{Findings: []report.Finding{
-		{Rule: "staleness", File: "a.md"},        // par-note, exclu (nit editorial)
-		{Rule: "staleness", File: "b.md"},        // idem
+		{Rule: "staleness", File: "a.md"},       // par-note, exclu (nit editorial)
+		{Rule: "staleness", File: "b.md"},       // idem
 		{Rule: "staleness-budget", File: "idx"}, // agrege, seul celui-ci compte
 	}}
-	a := Compute(nil, res, nil, "", 0, now)
+	a := Compute(nil, res, nil, "", 0, now, "")
 	if a.Peremption != 1 {
 		t.Errorf("Peremption = %d, attendu 1 (seul staleness-budget compte, pas les 2 staleness par-note)", a.Peremption)
 	}
@@ -69,7 +71,7 @@ func TestRegistreCompteLesIssuesDeCoherence(t *testing.T) {
 		RoleMap: map[string]perimeter.Bindings{perimeter.Roles[0]: {{Source: "s"}}},
 		Sources: map[string]perimeter.Source{"s": {Adapter: "files", Probe: &perimeter.Command{Cmd: "true"}}},
 	}
-	a := Compute(reg, &report.Result{}, nil, t.TempDir(), 30, now)
+	a := Compute(reg, &report.Result{}, nil, t.TempDir(), 30, now, "")
 	if a.Registre != len(perimeter.Roles)-1 {
 		t.Errorf("Registre = %d, attendu %d (cinq roles non pourvus)", a.Registre, len(perimeter.Roles)-1)
 	}
@@ -86,9 +88,38 @@ func TestFaitsCompteStaleEtDeriveSansDoublonParRef(t *testing.T) {
 		// Sain : preuve scriptee, sans ancre de ligne a rehacher.
 		{Ref: "sain.md", Status: reliability.StatusPreuveScriptee},
 	}
-	a := Compute(registreComplet(), &report.Result{}, entries, t.TempDir(), 30, now)
+	a := Compute(registreComplet(), &report.Result{}, entries, t.TempDir(), 30, now, "")
 	if a.Faits != 2 {
 		t.Errorf("Faits = %d, attendu 2 (une ref stale, une ref derivee, la ref saine exclue, pas de doublon)", a.Faits)
+	}
+}
+
+func TestFaitsSeLimiteALaPorteeDemandeeQuandUneEstDonnee(t *testing.T) {
+	root := t.TempDir()
+	dedans := filepath.Join(root, "sous-dossier")
+	if err := os.MkdirAll(dedans, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	entries := []reliability.Entry{
+		// Dans la portee demandee : compte.
+		{Ref: "sous-dossier/dedans.md#L1", Status: reliability.StatusConfirmeHumain, ConfirmedAt: "2020-01-01"},
+		// Hors de la portee demandee : ne compte pas, meme perime.
+		{Ref: "ailleurs.md#L1", Status: reliability.StatusConfirmeHumain, ConfirmedAt: "2020-01-01"},
+	}
+	a := Compute(registreComplet(), &report.Result{}, entries, root, 30, now, dedans)
+	if a.Faits != 1 {
+		t.Errorf("Faits = %d, attendu 1 (seule la ref sous la portee demandee compte)", a.Faits)
+	}
+}
+
+func TestFaitsIgnoreLaPorteeQuandElleEstVide(t *testing.T) {
+	root := t.TempDir()
+	entries := []reliability.Entry{
+		{Ref: "note.md#L1", Status: reliability.StatusConfirmeHumain, ConfirmedAt: "2020-01-01"},
+	}
+	a := Compute(registreComplet(), &report.Result{}, entries, root, 30, now, "")
+	if a.Faits != 1 {
+		t.Errorf("Faits = %d, attendu 1 (portee vide = pas de filtrage, comportement historique)", a.Faits)
 	}
 }
 
@@ -96,7 +127,7 @@ func TestFaitsResteAZeroSansRegistre(t *testing.T) {
 	entries := []reliability.Entry{
 		{Ref: "note.md#L1", Status: reliability.StatusConfirmeHumain, ConfirmedAt: "2020-01-01"},
 	}
-	a := Compute(nil, &report.Result{}, entries, t.TempDir(), 30, now)
+	a := Compute(nil, &report.Result{}, entries, t.TempDir(), 30, now, "")
 	if a.Faits != 0 {
 		t.Errorf("sans registre, Faits doit rester a zero (rien ne dit ou vit l'index), obtenu %d", a.Faits)
 	}

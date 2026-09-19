@@ -15,6 +15,8 @@ package advisory
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/UnPoilTefal/perimeter/internal/perimeter"
@@ -54,7 +56,14 @@ func (a Advisory) Empty() bool {
 // corpus resolu sans registre) : Registre et Faits retombent alors a
 // zero, faute d'un registre pour les porter. entries peut etre nil quand
 // aucun index de fiabilite n'existe encore.
-func Compute(reg *perimeter.Registry, lintRes *report.Result, entries []reliability.Entry, root string, unprobedBudgetDays int, now time.Time) Advisory {
+//
+// scope, quand non vide, limite les references comptees dans Faits a
+// celles qui vivent sous ce repertoire absolu — le meme decoupage que
+// celui deja applique a lintRes en amont, par l'appelant, quand un chemin
+// borne la sous-commande. scope vide ne filtre rien : c'est le
+// comportement historique, et c'est aussi ce qui se produit naturellement
+// quand l'appelant passe la racine du corpus entier.
+func Compute(reg *perimeter.Registry, lintRes *report.Result, entries []reliability.Entry, root string, unprobedBudgetDays int, now time.Time, scope string) Advisory {
 	a := Advisory{}
 
 	if lintRes != nil {
@@ -79,6 +88,9 @@ func Compute(reg *perimeter.Registry, lintRes *report.Result, entries []reliabil
 			continue
 		}
 		seen[e.Ref] = true
+		if scope != "" && !dansLaPortee(e.Ref, root, scope) {
+			continue
+		}
 		v := reliability.Check(entries, e.Ref, root, unprobedBudgetDays, now)
 		if v.Stale || v.Drifted {
 			a.Faits++
@@ -87,11 +99,29 @@ func Compute(reg *perimeter.Registry, lintRes *report.Result, entries []reliabil
 	return a
 }
 
+// dansLaPortee dit si la reference resout sous scope, une fois son chemin
+// (ancre de ligne retiree) resolu relativement a root — la meme convention
+// de resolution que reliability.Check applique deja.
+func dansLaPortee(ref, root, scope string) bool {
+	abs := filepath.Join(root, reliability.RefPath(ref))
+	rel, err := filepath.Rel(scope, abs)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// unavailableMsg est le seul endroit qui formule le cas indisponible — Ligne
+// et Warnings le partagent plutot que de le reformuler chacune.
+func (a Advisory) unavailableMsg() string {
+	return "avis ambiant indisponible : " + a.Cause
+}
+
 // Ligne rend la ligne stderr de l'avis ambiant, ou une chaine vide quand
 // il n'y a rien a signaler — a l'appelant de ne rien ecrire dans ce cas.
 func (a Advisory) Ligne() string {
 	if a.Unavailable {
-		return "avis ambiant indisponible : " + a.Cause
+		return a.unavailableMsg()
 	}
 	parts := a.categories()
 	if len(parts) == 0 {
@@ -113,7 +143,7 @@ func (a Advisory) Ligne() string {
 // (`omitempty`).
 func (a Advisory) Warnings() []string {
 	if a.Unavailable {
-		return []string{"avis ambiant indisponible : " + a.Cause}
+		return []string{a.unavailableMsg()}
 	}
 	parts := a.categories()
 	if len(parts) == 0 {

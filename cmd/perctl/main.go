@@ -218,13 +218,22 @@ func avisAmbiant(reg *perimeter.Registry, c *corpus.Corpus, reuse *report.Result
 		return a.Warnings()
 	}
 
-	lintRes := reuse
-	if lintRes == nil {
+	// c est optionnel : « perctl gate » peut ne recevoir qu'un registre, sans
+	// --corpus. Sans corpus, il n'y a rien a linter, et lintRes reste nil —
+	// Compute sait deja s'en passer.
+	var lintRes *report.Result
+	var scope string
+	if reuse != nil {
+		lintRes = reuse
+	} else if c != nil {
 		var err error
 		lintRes, err = lint.Run(c, lint.Options{})
 		if err != nil {
 			return afficher(advisory.Advisory{Unavailable: true, Cause: err.Error()})
 		}
+	}
+	if c != nil {
+		scope = c.Root
 	}
 
 	var entries []reliability.Entry
@@ -237,10 +246,12 @@ func avisAmbiant(reg *perimeter.Registry, c *corpus.Corpus, reuse *report.Result
 			return afficher(advisory.Advisory{Unavailable: true, Cause: err.Error()})
 		}
 		root = filepath.Dir(reg.Path)
-		budget = c.Config.UnprobedBudget()
+		if c != nil {
+			budget = c.Config.UnprobedBudget()
+		}
 	}
 
-	return afficher(advisory.Compute(reg, lintRes, entries, root, budget, time.Now()))
+	return afficher(advisory.Compute(reg, lintRes, entries, root, budget, time.Now(), scope))
 }
 
 // Conseils de designation d'un registre a la main. Ils different par
@@ -673,6 +684,7 @@ func cmdGate(args []string) error {
 	if err != nil {
 		return err
 	}
+	avisAmbiantGate(*regPath, *corpusPath)
 
 	if *allow {
 		if !*untrusted {
@@ -721,6 +733,32 @@ func cmdGate(args []string) error {
 	default:
 		return fail(2)
 	}
+}
+
+// avisAmbiantGate adapte l'avis ambiant au modele de resolution propre a
+// « gate » : --perimeter et --corpus y sont optionnels et independants,
+// sans la recherche ambiante des autres sous-commandes — preconditions()
+// vient deja de les charger une fois avec succes, donc un second
+// chargement ici n'a pas de raison d'echouer differemment ; s'il echoue
+// quand meme, il se rapporte comme "indisponible" plutot qu'en silence.
+func avisAmbiantGate(regPath, corpusPath string) {
+	var reg *perimeter.Registry
+	var c *corpus.Corpus
+	if regPath != "" {
+		var err error
+		if reg, err = perimeter.Load(regPath); err != nil {
+			fmt.Fprintln(os.Stderr, (advisory.Advisory{Unavailable: true, Cause: err.Error()}).Ligne()) //nolint:errcheck // sortie terminal
+			return
+		}
+	}
+	if corpusPath != "" {
+		var err error
+		if c, err = corpus.Load(corpusPath); err != nil {
+			fmt.Fprintln(os.Stderr, (advisory.Advisory{Unavailable: true, Cause: err.Error()}).Ligne()) //nolint:errcheck // sortie terminal
+			return
+		}
+	}
+	avisAmbiant(reg, c, nil)
 }
 
 // preconditions rassemble ce que l'outil sait verifier seul : la couverture

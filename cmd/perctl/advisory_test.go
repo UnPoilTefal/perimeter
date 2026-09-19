@@ -53,6 +53,30 @@ func TestAvisAmbiantSilencieuxSurUnPerimetreSain(t *testing.T) {
 	}
 }
 
+// P2 — « gate » a son propre modele de resolution (--perimeter et --corpus
+// optionnels et independants, sans recherche ambiante), distinct de
+// resolveCorpus. La story 2 du spec #73 le nomme explicitement : l'avis
+// ambiant doit s'y accrocher quand meme. Le test passe par avisAmbiantGate
+// directement plutot que par cmdGate : un registre incomplet fait aussi
+// echouer la precondition de gate lui-meme (meme Registry.Check() sous les
+// deux), et cmdGate quitte le process sur un verdict non-Produire — passer
+// par la commande entiere tuerait le binaire de test, pas seulement le cas.
+func TestAvisAmbiantSurGateAvecRegistreIncomplet(t *testing.T) {
+	dir := t.TempDir()
+	regPath := filepath.Join(dir, "perimeter.yml")
+	// Un seul role pourvu sur six : Registry.Check() rapporte les cinq
+	// manquants, exactement le fixture deja eprouve par advisory_test.go.
+	ecrire(t, regPath, "version: 1\nroles:\n  intention.spec: { source: s }\nsources:\n  s:\n    adapter: files\n    reliability: declared\n    probe: { cmd: \"true\" }\n")
+
+	out, _ := stderrDe(t, func() error {
+		avisAmbiantGate(regPath, "")
+		return nil
+	})
+	if !strings.Contains(out, "avis ambiant") || !strings.Contains(out, "probleme(s) de registre") {
+		t.Errorf("gate avec un registre incomplet doit produire un avis ambiant, stderr : %q", out)
+	}
+}
+
 // P2 — la garantie centrale du chantier #73 : un echec interne du calcul de
 // l'avis ambiant (ici, un index de fiabilite illisible) ne doit jamais
 // empecher la sous-commande reellement demandee de s'executer jusqu'au bout,
