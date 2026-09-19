@@ -136,7 +136,7 @@ func HashLine(root, ref string) (hash string, ok bool, err error) {
 	if openErr != nil {
 		return "", false, openErr
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck // lecture seule
 	sc := bufio.NewScanner(f)
 	for i := 1; sc.Scan(); i++ {
 		if i == lineNo {
