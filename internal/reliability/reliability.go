@@ -150,6 +150,17 @@ func HashLine(root, ref string) (hash string, ok bool, err error) {
 	return "", true, nil // la ligne n'existe plus : la cible a disparu — Check le detecte comme une derive, jamais comme "a jour"
 }
 
+// RefPath rend la portion chemin d'une reference, sans l'ancre de ligne :
+// "chemin#L42" devient "chemin", et une reference sans ancre reste
+// inchangee. Sert a situer une reference dans une arborescence — l'ancre de
+// ligne n'y a pas de sens.
+func RefPath(ref string) string {
+	if m := lineRefRe.FindStringSubmatch(ref); m != nil {
+		return m[1]
+	}
+	return ref
+}
+
 // Verdict est ce qu'un agent recoit de Check : le statut, et s'il faut le
 // prendre pour argent comptant ou revalider. L'agent decide a partir de ce
 // seul verdict — jamais en jugeant lui-meme le fait.
