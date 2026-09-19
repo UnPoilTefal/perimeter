@@ -921,6 +921,9 @@ func cmdPropose(args []string) error {
 				fmt.Printf("      %s\n", p.Expect)
 			}
 		}
+		if p.Motif != "" {
+			fmt.Printf("      ~ [%s] %s\n", p.Motif, p.Consequence)
+		}
 	}
 
 	if !*write {

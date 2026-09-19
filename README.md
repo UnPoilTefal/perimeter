@@ -234,6 +234,12 @@ texte, et propose la sonde correspondante :
 | `registre` | la note cite une source déclarée — `produit#412` | `source: tickets`, `arg: "412"` |
 | `structurel` | chemin absolu, URL, hôte, version | `test -e …`, `curl -sfI …` |
 
+**Une proposition de type `chemin` porte toujours un caveat** : `test -e`
+prouve que le chemin est là, jamais ce que la note affirme à son sujet — même
+remarque de maturité que `perctl perimeter` applique déjà à une source
+(`sonde-d-existence`). Le commentaire inséré par `--write` la porte, pour
+qu'une relecture humaine la voie avant de décommenter.
+
 L'ancrage au registre est le bon : **ne pas deviner ce qu'est un dépôt, demander au registre.**
 Un motif générique (`mot/mot`) produit 80 % de faux positifs, et un endpoint dégénéré (`.`)
 donne une ancre qui matche tout — les deux mesurés, les deux écartés par le code.

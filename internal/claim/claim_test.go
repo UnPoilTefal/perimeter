@@ -419,3 +419,62 @@ func TestUneAdresseCoexisteAvecUneVersion(t *testing.T) {
 		t.Errorf("l'adresse reelle devait etre retenue, obtenu %+v", p)
 	}
 }
+
+// La sonde d'existence sur un chemin ne prouve que sa presence, jamais la
+// revendication de contenu que la note porte reellement — meme motif que
+// « sonde-d-existence » deja applique aux sources dans Maturite().
+func TestUnCheminEstSignaleCommeSondeDExistence(t *testing.T) {
+	c, reg := setup(t, map[string]string{
+		"reference-chemin": "Le catalogue vit dans /Users/x/dev/sources/catalogue, une fiche par brique.",
+	})
+	r := Propose(c, reg)
+	p, ok := find(r, "reference-chemin")
+	if !ok {
+		t.Fatal("une proposition etait attendue")
+	}
+	if p.Motif != "sonde-d-existence" {
+		t.Errorf("motif sonde-d-existence attendu, obtenu %q", p.Motif)
+	}
+	if p.Consequence == "" {
+		t.Error("la consequence doit expliquer ce que la sonde ne prouve pas")
+	}
+}
+
+// Une note qui enonce une absence appelle une sonde inversee, qui prouve
+// exactement la revendication (« ce chemin n'existe plus ») — pas de caveat
+// a poser ici, contrairement au cas positif ci-dessus.
+func TestUneAbsenceDeCheminNEstPasUneSondeDExistence(t *testing.T) {
+	c, reg := setup(t, map[string]string{
+		"reference-absence": "Le chemin /Users/x/dev/sources/ancien-repo a ete supprime du poste.",
+	})
+	r := Propose(c, reg)
+	p, ok := find(r, "reference-absence")
+	if !ok {
+		t.Fatal("une proposition etait attendue")
+	}
+	if p.Motif != "" {
+		t.Errorf("une sonde inversee prouve la revendication, aucun motif attendu, obtenu %q", p.Motif)
+	}
+	if !strings.HasPrefix(p.Cmd, `cmd: "! test -e`) {
+		t.Errorf("sonde inversee attendue, obtenu %q", p.Cmd)
+	}
+}
+
+// Le caveat doit survivre a l'ecriture en commentaire : un humain qui relit
+// la note doit voir que la sonde ne prouve qu'une presence, pas la revendication.
+func TestLaSondeDExistenceEstSignaleeDansLeCommentaire(t *testing.T) {
+	c, reg := setup(t, map[string]string{
+		"reference-chemin": "Le catalogue vit dans /Users/x/dev/sources/catalogue, une fiche par brique.",
+	})
+	r := Propose(c, reg)
+	if _, err := Write(c, r.Proposals); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(c.Root, "reference-chemin.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "sonde-d-existence") {
+		t.Errorf("le commentaire doit citer le motif sonde-d-existence :\n%s", raw)
+	}
+}
