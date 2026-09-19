@@ -81,15 +81,15 @@ type CorpusPolicy struct {
 	RequireDate          *bool    `yaml:"require_date"`
 	VerifyTimeoutSeconds int      `yaml:"verify_timeout_seconds"`
 	Staleness            struct {
-		ReviewAfterDays         int     `yaml:"review_after_days"`
-		MaxStaleRatio           float64 `yaml:"max_stale_ratio"`
+		ReviewAfterDays int     `yaml:"review_after_days"`
+		MaxStaleRatio   float64 `yaml:"max_stale_ratio"`
 		// ProbedReviewAfterDays et UnprobedReviewAfterDays distinguent la
 		// fraicheur d'une note sondable (rejouer une sonde ne coute rien)
 		// de celle d'une note non-sondable (revalider coute un humain).
 		// ReviewAfterDays reste un alias retrocompatible des deux quand ils
 		// sont absents — voir corpus.Config.ProbedBudget/UnprobedBudget.
-		ProbedReviewAfterDays   int     `yaml:"probed_review_after_days"`
-		UnprobedReviewAfterDays int     `yaml:"unprobed_review_after_days"`
+		ProbedReviewAfterDays   int `yaml:"probed_review_after_days"`
+		UnprobedReviewAfterDays int `yaml:"unprobed_review_after_days"`
 	} `yaml:"staleness"`
 	Links struct {
 		IgnorePrefixes []string `yaml:"ignore_prefixes"`

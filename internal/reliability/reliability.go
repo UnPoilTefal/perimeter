@@ -11,6 +11,12 @@
 // principe canon de ce projet, etabli trois fois sur la detection de
 // recouvrement lexical. Une confirmation est preuve-scriptee, confirmee par
 // un humain, ou sans signal — jamais un pourcentage de confiance.
+//
+// Convention de resolution : une ref comme "chemin#L42" resout "chemin"
+// relativement au repertoire du registre lui-meme (celui ou vit
+// perimeter.yml), jamais au root du corpus — une future commande "confirm"
+// doit suivre exactement la meme convention, sous peine d'ecrire des
+// entrees qui pointent au mauvais endroit.
 package reliability
 
 import (
@@ -107,8 +113,13 @@ var lineRefRe = regexp.MustCompile(`^(.+)#L(\d+)$`)
 
 // HashLine rend l'empreinte de la ligne visee par une reference — jamais son
 // contenu : c'est une empreinte de changement, pas une recopie de la source.
-// ok=false signifie « rien a comparer » (reference sans ancre de ligne),
-// jamais une erreur.
+//
+// ok=false signifie « aucune ancre de ligne » : la reference n'a pas la
+// forme "chemin#L42", rien n'a jamais ete comparable — jamais une erreur.
+// ok=true avec hash="" signifie « l'ancre existe mais sa cible a disparu »
+// (fichier supprime, ou ligne qui n'existe plus) : Check traite ce cas comme
+// une derive, pas comme "rien a comparer" — une cible disparue est le
+// changement de contenu le plus complet qui soit.
 func HashLine(root, ref string) (hash string, ok bool, err error) {
 	m := lineRefRe.FindStringSubmatch(ref)
 	if m == nil {
@@ -120,7 +131,7 @@ func HashLine(root, ref string) (hash string, ok bool, err error) {
 	}
 	f, openErr := os.Open(filepath.Join(root, m[1]))
 	if errors.Is(openErr, os.ErrNotExist) {
-		return "", true, nil // le fichier a disparu : rien a comparer, pas une erreur
+		return "", true, nil // le fichier a disparu — Check le detecte comme une derive, jamais comme "a jour"
 	}
 	if openErr != nil {
 		return "", false, openErr
@@ -133,7 +144,10 @@ func HashLine(root, ref string) (hash string, ok bool, err error) {
 			return "sha256:" + hex.EncodeToString(sum[:]), true, nil
 		}
 	}
-	return "", true, nil // la ligne n'existe plus : rien a comparer
+	if scanErr := sc.Err(); scanErr != nil {
+		return "", true, scanErr
+	}
+	return "", true, nil // la ligne n'existe plus : la cible a disparu — Check le detecte comme une derive, jamais comme "a jour"
 }
 
 // Verdict est ce qu'un agent recoit de Check : le statut, et s'il faut le
@@ -167,7 +181,8 @@ func Check(entries []Entry, ref, root string, unprobedBudgetDays int, now time.T
 	}
 
 	if e.ClaimHash != "" {
-		if hash, ok, err := HashLine(root, e.Ref); err == nil && ok && hash != "" && hash != e.ClaimHash {
+		hash, ok, err := HashLine(root, e.Ref)
+		if err != nil || (ok && hash != e.ClaimHash) {
 			v.Drifted = true
 		}
 	}

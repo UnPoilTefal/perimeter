@@ -132,3 +132,48 @@ func TestUneReferenceInchangeeNEstPasDrifted(t *testing.T) {
 		t.Error("le contenu n'a pas change : Drifted non attendu")
 	}
 }
+
+// Un fichier supprime apres confirmation est une derive maximale — le
+// signaler comme "a jour" serait pire que ne rien signaler du tout.
+func TestUnFichierSupprimeEstDrifted(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "note.md"), []byte("ligne 1\nle port 9 est le WAN2\nligne 3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	empreinte, ok, err := HashLine(dir, "note.md#L2")
+	if err != nil || !ok {
+		t.Fatalf("empreinte initiale attendue, err=%v ok=%v", err, ok)
+	}
+	entries := []Entry{{Ref: "note.md#L2", Status: StatusConfirmeHumain, ConfirmedAt: "2026-09-01", ClaimHash: empreinte}}
+
+	if err := os.Remove(filepath.Join(dir, "note.md")); err != nil {
+		t.Fatal(err)
+	}
+	v := Check(entries, "note.md#L2", dir, 180, time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC))
+	if !v.Drifted {
+		t.Error("le fichier a disparu : Drifted attendu, pas 'a jour'")
+	}
+}
+
+// Une ligne qui a disparu (fichier raccourci) sans que le fichier lui-meme
+// disparaisse doit aussi etre une derive, pas un silence.
+func TestUneLigneDisparueEstDrifted(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "note.md"), []byte("ligne 1\nle port 9 est le WAN2\nligne 3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	empreinte, ok, err := HashLine(dir, "note.md#L2")
+	if err != nil || !ok {
+		t.Fatalf("empreinte initiale attendue, err=%v ok=%v", err, ok)
+	}
+	entries := []Entry{{Ref: "note.md#L2", Status: StatusConfirmeHumain, ConfirmedAt: "2026-09-01", ClaimHash: empreinte}}
+
+	// Le fichier est raccourci a une seule ligne : la ligne 2 n'existe plus.
+	if err := os.WriteFile(filepath.Join(dir, "note.md"), []byte("ligne 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	v := Check(entries, "note.md#L2", dir, 180, time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC))
+	if !v.Drifted {
+		t.Error("la ligne a disparu : Drifted attendu, pas 'a jour'")
+	}
+}
