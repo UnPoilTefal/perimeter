@@ -30,6 +30,7 @@ import (
 	"github.com/UnPoilTefal/perimeter/internal/perimeter"
 	"github.com/UnPoilTefal/perimeter/internal/probediff"
 	"github.com/UnPoilTefal/perimeter/internal/readiness"
+	"github.com/UnPoilTefal/perimeter/internal/reliability"
 	"github.com/UnPoilTefal/perimeter/internal/report"
 	"github.com/UnPoilTefal/perimeter/internal/verify"
 	"github.com/UnPoilTefal/perimeter/schema"
@@ -52,6 +53,8 @@ const usage = `perctl — savoir si un agent peut agir sur un perimetre
   perctl propose [chemin]  propose une sonde pour les notes qui n'en portent pas
   perctl draft  [fichier]  juge un brouillon avant de l'ecrire (« - » ou rien : entree standard)
   perctl harvest           propose des candidats depuis les traces deja la (--allow-exec)
+  perctl reliability check <ref>
+                           verdict de fiabilite pour une reference du perimetre
   perctl init   [chemin]   ecrit un perimeter.yml : le registre du perimetre
   perctl schema            ecrit le JSON Schema sur la sortie standard
   perctl version
@@ -96,6 +99,8 @@ func main() {
 		err = cmdDraft(os.Args[2:])
 	case "harvest":
 		err = cmdHarvest(os.Args[2:])
+	case "reliability":
+		err = cmdReliability(os.Args[2:])
 	case "init":
 		err = cmdInit(os.Args[2:])
 	case "schema":
@@ -1249,6 +1254,56 @@ func cmdHarvest(args []string) error {
 		return enc.Encode(res)
 	}
 	return ecrireMoisson(os.Stdout, c, res)
+}
+
+// cmdReliability route vers les sous-commandes de l'index de fiabilite.
+func cmdReliability(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("sous-commande attendue : check")
+	}
+	switch args[0] {
+	case "check":
+		return cmdReliabilityCheck(args[1:])
+	default:
+		return fmt.Errorf("sous-commande inconnue : %s", args[0])
+	}
+}
+
+// cmdReliabilityCheck rend le verdict de fiabilite d'une reference — le
+// chemin de lecture qu'un agent consulte avant de reutiliser un fait.
+func cmdReliabilityCheck(args []string) error {
+	fs := flag.NewFlagSet("reliability check", flag.ExitOnError)
+	regPath := fs.String("perimeter", "", "registre a utiliser (defaut : recherche en remontant)")
+	ref := positional(args)
+	_ = fs.Parse(trimPositional(args))
+	if ref == "" {
+		return fmt.Errorf("usage : perctl reliability check <ref>")
+	}
+
+	_, reg, err := resolveCorpus("", *regPath)
+	if err != nil {
+		return err
+	}
+	if reg == nil {
+		return fmt.Errorf("aucun registre trouve — voir « perctl init »")
+	}
+	entries, err := reliability.Load(reliability.IndexPath(reg.Path))
+	if err != nil {
+		return err
+	}
+	_, _, policy, err := reg.CorpusSource()
+	if err != nil {
+		return err
+	}
+	cfg := corpus.ConfigFromPolicy(policy)
+	v := reliability.Check(entries, ref, filepath.Dir(reg.Path), cfg.UnprobedBudget(), time.Now())
+
+	fmt.Printf("%s : %s\n", ref, v.Status)
+	fmt.Printf("  %s\n", v.Detail)
+	if v.Stale || v.Drifted {
+		return fail(1)
+	}
+	return nil
 }
 
 func ecrireMoisson(w io.Writer, c *corpus.Corpus, res *harvest.Result) error {
