@@ -460,21 +460,18 @@ func ruleOwnership(c *corpus.Corpus, _ Options, res *report.Result) {
 	}
 }
 
-// ruleStaleness compare chaque note a son echeance de relecture, et le corpus
-// entier au budget de peremption tolere.
+// ruleStaleness compare chaque note a son echeance de relecture — le palier
+// applicable depend de sa sondabilite, voir corpus.Config.StalenessBudget —
+// et le corpus entier au budget de peremption tolere.
 func ruleStaleness(c *corpus.Corpus, opt Options, res *report.Result) {
-	budget := c.Config.Policy.Staleness.ReviewAfterDays
 	stale, dated := 0, 0
 	for _, n := range c.Notes {
 		if n.ParseErr != nil {
 			continue
 		}
+		budget := c.Config.StalenessBudget(n)
 		due, ok := n.ReviewDue(budget)
 		if !ok {
-			// Une note qu'aucune date ne rattache au temps est hors de
-			// portee de toute peremption. Un avertissement ne l'a jamais
-			// fait corriger : sur un corpus reel, 18 % des notes etaient
-			// dans ce cas, et le signal se noyait dans le bruit.
 			severite := report.Warn
 			if c.Config.Policy.RequireDate {
 				severite = report.Error

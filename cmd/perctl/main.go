@@ -713,7 +713,7 @@ func preconditions(regPath, corpusPath string, a *readiness.Assessment) ([]readi
 			})
 			continue
 		}
-		if due, ok := n.ReviewDue(c.Config.Policy.Staleness.ReviewAfterDays); ok && now.After(due) {
+		if due, ok := n.ReviewDue(c.Config.StalenessBudget(n)); ok && now.After(due) {
 			pre = append(pre, readiness.Precondition{
 				Code:    "fait-perime",
 				Message: fmt.Sprintf("le fait %q est a relire depuis le %s", name, due.Format("2006-01-02")),

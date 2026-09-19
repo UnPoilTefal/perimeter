@@ -31,8 +31,10 @@ type Config struct {
 		Types        []string `yaml:"types"`
 		MaxBodyWords int      `yaml:"max_body_words"`
 		Staleness    struct {
-			ReviewAfterDays int     `yaml:"review_after_days"`
-			MaxStaleRatio   float64 `yaml:"max_stale_ratio"`
+			ReviewAfterDays         int     `yaml:"review_after_days"`
+			MaxStaleRatio           float64 `yaml:"max_stale_ratio"`
+			ProbedReviewAfterDays   int     `yaml:"probed_review_after_days"`
+			UnprobedReviewAfterDays int     `yaml:"unprobed_review_after_days"`
 		} `yaml:"staleness"`
 		RequireOwner bool `yaml:"require_owner"`
 
@@ -149,6 +151,12 @@ func ConfigFromPolicy(p *perimeter.CorpusPolicy) *Config {
 	if p.Staleness.MaxStaleRatio > 0 {
 		cfg.Policy.Staleness.MaxStaleRatio = p.Staleness.MaxStaleRatio
 	}
+	if p.Staleness.ProbedReviewAfterDays > 0 {
+		cfg.Policy.Staleness.ProbedReviewAfterDays = p.Staleness.ProbedReviewAfterDays
+	}
+	if p.Staleness.UnprobedReviewAfterDays > 0 {
+		cfg.Policy.Staleness.UnprobedReviewAfterDays = p.Staleness.UnprobedReviewAfterDays
+	}
 	if p.Links.IgnorePrefixes != nil {
 		cfg.Links.IgnorePrefixes = p.Links.IgnorePrefixes
 	}
@@ -159,6 +167,36 @@ func ConfigFromPolicy(p *perimeter.CorpusPolicy) *Config {
 		cfg.Verify.TimeoutSeconds = p.VerifyTimeoutSeconds
 	}
 	return cfg
+}
+
+// ProbedBudget rend le budget de relecture d'une note sondable : rejouer sa
+// sonde ne coute rien, donc ce palier reste serre. Sans reglage explicite,
+// review_after_days sert d'alias retrocompatible.
+func (c *Config) ProbedBudget() int {
+	if c.Policy.Staleness.ProbedReviewAfterDays > 0 {
+		return c.Policy.Staleness.ProbedReviewAfterDays
+	}
+	return c.Policy.Staleness.ReviewAfterDays
+}
+
+// UnprobedBudget rend le budget de relecture d'une note non-sondable :
+// revalider coute un humain, donc ce palier reste large par defaut. Sans
+// reglage explicite, review_after_days sert d'alias retrocompatible.
+func (c *Config) UnprobedBudget() int {
+	if c.Policy.Staleness.UnprobedReviewAfterDays > 0 {
+		return c.Policy.Staleness.UnprobedReviewAfterDays
+	}
+	return c.Policy.Staleness.ReviewAfterDays
+}
+
+// StalenessBudget route vers le palier applicable a une note precise : une
+// sonde scriptee (metadata.verify non vide) releve du palier sondable,
+// tout le reste du palier non-sondable.
+func (c *Config) StalenessBudget(n *Note) int {
+	if len(n.Metadata.Verify) > 0 {
+		return c.ProbedBudget()
+	}
+	return c.UnprobedBudget()
 }
 
 // indexLink capture les cibles markdown d'un lien : [titre](fichier.md)

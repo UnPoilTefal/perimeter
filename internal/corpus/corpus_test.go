@@ -64,4 +64,32 @@ func TestChampVideNEcrasePasLeDefaut(t *testing.T) {
 	}
 }
 
+// Test d'acceptation — les deux paliers de staleness se traduisent
+// independamment, et l'alias retrocompatible ne s'applique qu'en leur absence.
+func TestLesDeuxPaliersDeStalenessSeTraduisentIndependamment(t *testing.T) {
+	p := &perimeter.CorpusPolicy{}
+	p.Staleness.ProbedReviewAfterDays = 15
+	p.Staleness.UnprobedReviewAfterDays = 200
+
+	got := ConfigFromPolicy(p)
+	if got.Policy.Staleness.ProbedReviewAfterDays != 15 {
+		t.Errorf("palier sondable attendu 15, obtenu %d", got.Policy.Staleness.ProbedReviewAfterDays)
+	}
+	if got.Policy.Staleness.UnprobedReviewAfterDays != 200 {
+		t.Errorf("palier non-sondable attendu 200, obtenu %d", got.Policy.Staleness.UnprobedReviewAfterDays)
+	}
+}
+
+// Sans les deux nouvelles cles, review_after_days reste un alias valide des
+// deux paliers — retrocompatibilite explicite du modele.
+func TestReviewAfterDaysResteUnAliasDesDeuxPaliersEnLeurAbsence(t *testing.T) {
+	p := &perimeter.CorpusPolicy{}
+	p.Staleness.ReviewAfterDays = 50
+
+	got := ConfigFromPolicy(p)
+	if got.ProbedBudget() != 50 || got.UnprobedBudget() != 50 {
+		t.Errorf("les deux paliers doivent retomber sur l'alias 50 : probed=%d unprobed=%d", got.ProbedBudget(), got.UnprobedBudget())
+	}
+}
+
 func ptr(s string) *string { return &s }
