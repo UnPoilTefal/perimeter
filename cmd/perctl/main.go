@@ -1172,6 +1172,9 @@ func ecrireVerdict(w io.Writer, c *corpus.Corpus, n *corpus.Note, v *draft.Verdi
 		if v.Verify.Why != "" {
 			o.f("        %s\n", v.Verify.Why)
 		}
+		if v.Verify.Motif != "" {
+			o.f("        ~ [%s] %s\n", v.Verify.Motif, v.Verify.Consequence)
+		}
 		o.f("\n")
 	}
 

@@ -33,6 +33,7 @@ sources:
     reliability: measured
     probe: { cmd: "true" }
     query: { cmd: "acli jira workitem view ${arg}" }
+  tickets-jira-court: { adapter: jira, endpoint: "OPS", reliability: measured, probe: { cmd: "true" }, query: { cmd: "acli jira workitem view ${arg}" } }
   memoire:  { adapter: files,  endpoint: ".",          reliability: declared, probe: { cmd: "true" } }
   depot:    { adapter: git,    endpoint: "/srv/repo",  reliability: declared, probe: { cmd: "true" } }
   cluster:  { adapter: shell,  endpoint: "ctx@app",    reliability: measured, probe: { cmd: "true" } }
@@ -110,6 +111,26 @@ func TestUneCleDeTicketJiraSAncreAuRegistre(t *testing.T) {
 		t.Errorf("ancrage registre tickets-jira attendu, obtenu %s/%s", p.Confidence, p.Source)
 	}
 	if !strings.Contains(p.Cmd, `arg: "PROJ-1234"`) {
+		t.Errorf("la cle complete doit etre reprise comme argument : %q", p.Cmd)
+	}
+}
+
+// Le plancher de longueur d'ancrable protege les sources qui matchent une
+// sous-chaine nue, mais l'ancre jira exige deja un « -<numero> » final : une
+// cle de projet courte (OPS, HL...) doit s'ancrer malgre elle.
+func TestUneCleDeProjetJiraCourteSAncreAuRegistre(t *testing.T) {
+	c, reg := setup(t, map[string]string{
+		"reference-jira-court": "OPS-7 est en cours de qualification.",
+	})
+	r := Propose(c, reg)
+	p, ok := find(r, "reference-jira-court")
+	if !ok {
+		t.Fatal("une proposition etait attendue")
+	}
+	if p.Confidence != FromRegistry || p.Source != "tickets-jira-court" {
+		t.Errorf("ancrage registre tickets-jira-court attendu, obtenu %s/%s", p.Confidence, p.Source)
+	}
+	if !strings.Contains(p.Cmd, `arg: "OPS-7"`) {
 		t.Errorf("la cle complete doit etre reprise comme argument : %q", p.Cmd)
 	}
 }
