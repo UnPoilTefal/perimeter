@@ -56,6 +56,10 @@ const usage = `perctl — savoir si un agent peut agir sur un perimetre
   perctl harvest           propose des candidats depuis les traces deja la (--allow-exec)
   perctl reliability check <ref>
                            verdict de fiabilite pour une reference du perimetre
+  perctl audit <chemin>[#Lnn] [--origine ...]
+                           marque un fait douteux dans une note non-schemee
+                           (« [!verification]- » ; sans #Lnn, mode interactif
+                            ligne par ligne, sur un fichier ou un dossier)
   perctl init   [chemin]   ecrit un perimeter.yml : le registre du perimetre
   perctl schema            ecrit le JSON Schema sur la sortie standard
   perctl version
@@ -102,6 +106,8 @@ func main() {
 		err = cmdHarvest(os.Args[2:])
 	case "reliability":
 		err = cmdReliability(os.Args[2:])
+	case "audit":
+		err = cmdAudit(os.Args[2:])
 	case "init":
 		err = cmdInit(os.Args[2:])
 	case "schema":
