@@ -62,3 +62,54 @@ sources:
 	}
 	t.Errorf("attendu une precondition fait-perime (budget de 5 jours declare au registre), obtenu %+v", pre)
 }
+
+// #72 (suite) — Registry.Check() ne detecte pas tout ce qui fait echouer
+// CorpusSource() : deux sources qualifiees pour contrainte.memoire passent
+// Check() (chacune est distinguee par son qualifier), mais CorpusSource()
+// refuse quand meme, un corpus etant singulier. Ce cas doit se signaler,
+// jamais retomber en silence sur la politique par defaut.
+func TestPreconditionsSignaleUnCorpusNonUnivoque(t *testing.T) {
+	dir := t.TempDir()
+	regPath := filepath.Join(dir, "perimeter.yml")
+	corpusDir := filepath.Join(dir, "memoire")
+	if err := os.MkdirAll(corpusDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ecrire(t, filepath.Join(corpusDir, "MEMORY.md"), "# Index\n")
+
+	ecrire(t, regPath, `version: 1
+roles:
+  intention.spec:       { source: m }
+  intention.tickets:    { source: m }
+  contrainte.decisions: { source: m }
+  contrainte.memoire:
+    - { source: m,  qualifier: prod }
+    - { source: m2, qualifier: recette }
+  etat.declare:         { source: m }
+  etat.reel:            { source: m }
+sources:
+  m:
+    adapter: files
+    reliability: declared
+    endpoint: "`+corpusDir+`"
+    probe: { cmd: "true" }
+    corpus: { index: MEMORY.md }
+  m2:
+    adapter: files
+    reliability: declared
+    endpoint: "`+corpusDir+`"
+    probe: { cmd: "true" }
+`)
+
+	a := &readiness.Assessment{Spec: "test", Facts: []string{"reference-un"}}
+	pre, err := preconditions(regPath, corpusDir, a)
+	if err != nil {
+		t.Fatalf("preconditions: %v", err)
+	}
+	for _, p := range pre {
+		if p.Code == "politique-corpus" {
+			return
+		}
+	}
+	t.Errorf("attendu une precondition politique-corpus (CorpusSource non univoque), obtenu %+v", pre)
+}

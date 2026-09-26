@@ -660,6 +660,29 @@ func cmdGate(args []string) error {
 	}
 }
 
+// corpusConfigParRegistre rend la politique de corpus declaree par reg, ou la
+// politique par defaut si reg est nil (corpus designe sans --perimeter).
+//
+// err est non nil quand reg est donne mais que son role corpus n'est pas
+// univoque (CorpusSource echoue) — cfg reste alors la politique par defaut,
+// mais l'appelant doit signaler l'echec plutot que de laisser sa cause muette
+// (#72 : Registry.Check() ne detecte pas tous les cas ou CorpusSource
+// echoue, ex. deux sources qualifiees pour le meme role).
+//
+// Fonction partagee par preconditions et avisAmbiantGate : elles doivent
+// rester d'accord sur la meme politique, sous peine de rendre un verdict et
+// un avis ambiant qui se contredisent sur la meme fraicheur.
+func corpusConfigParRegistre(reg *perimeter.Registry) (*corpus.Config, error) {
+	if reg == nil {
+		return corpus.DefaultConfig(), nil
+	}
+	_, _, policy, err := reg.CorpusSource()
+	if err != nil {
+		return corpus.DefaultConfig(), err
+	}
+	return corpus.ConfigFromPolicy(policy), nil
+}
+
 // avisAmbiantGate adapte l'avis ambiant au modele de resolution propre a
 // « gate » : --perimeter et --corpus y sont optionnels et independants,
 // sans la recherche ambiante des autres sous-commandes — preconditions()
@@ -677,8 +700,13 @@ func avisAmbiantGate(w io.Writer, regPath, corpusPath string) {
 		}
 	}
 	if corpusPath != "" {
+		cfg, cfgErr := corpusConfigParRegistre(reg)
+		if cfgErr != nil {
+			fmt.Fprintln(w, (advisory.Advisory{Unavailable: true, Cause: cfgErr.Error()}).Ligne()) //nolint:errcheck // sortie terminal
+			return
+		}
 		var err error
-		if c, err = corpus.Load(corpusPath); err != nil {
+		if c, err = corpus.LoadWith(corpusPath, cfg); err != nil {
 			fmt.Fprintln(w, (advisory.Advisory{Unavailable: true, Cause: err.Error()}).Ligne()) //nolint:errcheck // sortie terminal
 			return
 		}
@@ -714,12 +742,16 @@ func preconditions(regPath, corpusPath string, a *readiness.Assessment) ([]readi
 	}
 	// Le corpus doit charger la politique declaree au registre — meme regle
 	// que resolveCorpus — sinon un budget de relecture plus strict que le
-	// defaut n'atteint jamais « gate » (#72).
-	cfg := corpus.DefaultConfig()
-	if reg != nil {
-		if _, _, policy, err := reg.CorpusSource(); err == nil {
-			cfg = corpus.ConfigFromPolicy(policy)
-		}
+	// defaut n'atteint jamais « gate » (#72). Un echec de CorpusSource() se
+	// signale ici, plutot que de laisser la politique par defaut s'appliquer
+	// sans que rien ne le dise.
+	cfg, cfgErr := corpusConfigParRegistre(reg)
+	if cfgErr != nil {
+		pre = append(pre, readiness.Precondition{
+			Code:    "politique-corpus",
+			Message: fmt.Sprintf("politique de staleness du registre indisponible (%v) — budget par defaut applique", cfgErr),
+			Hint:    "perctl perimeter " + regPath,
+		})
 	}
 	c, err := corpus.LoadWith(corpusPath, cfg)
 	if err != nil {
