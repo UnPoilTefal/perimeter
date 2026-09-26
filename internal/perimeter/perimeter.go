@@ -159,6 +159,29 @@ type Registry struct {
 	Version int                 `yaml:"version"`
 	RoleMap map[string]Bindings `yaml:"roles"`
 	Sources map[string]Source   `yaml:"sources"`
+	// CorpusExternes declare des corpus de documentation qui n'adoptent pas
+	// le schema perimeter (vault Obsidian, catalogue produit) — ne pourvoit
+	// aucun role, jamais valide fonctionnellement (#85).
+	CorpusExternes []CorpusExterne `yaml:"corpus_externes"`
+}
+
+// CorpusExterne est la declaration minimale d'un corpus de documentation
+// hors schema perimeter : un chemin, et un type texte libre purement
+// descriptif — jamais une enumeration fermee, jamais une base pour une
+// heuristique differente selon sa valeur.
+type CorpusExterne struct {
+	Chemin string `yaml:"chemin"`
+	Type   string `yaml:"type"`
+}
+
+// ResoudreCorpusExterne rend le chemin absolu d'un corpus externe, resolu
+// relativement au registre — meme convention que CorpusSource, pour qu'une
+// commande lancee d'ailleurs vise le bon repertoire.
+func (r *Registry) ResoudreCorpusExterne(ce CorpusExterne) string {
+	if filepath.IsAbs(ce.Chemin) {
+		return ce.Chemin
+	}
+	return filepath.Join(filepath.Dir(r.Path), ce.Chemin)
 }
 
 // Find remonte l'arborescence depuis dir a la recherche d'un registre, comme
