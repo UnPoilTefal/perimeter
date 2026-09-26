@@ -49,6 +49,13 @@
       "additionalProperties": {
         "$ref": "#/$defs/source"
       }
+    },
+    "corpus_externes": {
+      "type": "array",
+      "description": "Corpus de documentation externes au perimetre (vault Obsidian, catalogue produit) : ne pourvoient aucun role, jamais valides contre le schema perimeter.",
+      "items": {
+        "$ref": "#/$defs/corpusExterne"
+      }
     }
   },
   "$defs": {
@@ -244,6 +251,25 @@
         "verify_timeout_seconds": {
           "type": "integer",
           "minimum": 1
+        }
+      }
+    },
+    "corpusExterne": {
+      "type": "object",
+      "required": [
+        "chemin"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "chemin": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Chemin du corpus externe, resolu relativement au registre."
+        },
+        "type": {
+          "type": "string",
+          "maxLength": 60,
+          "description": "Texte libre, purement descriptif (ex. obsidian, catalogue) — jamais valide contre une enumeration, jamais fonctionnel."
         }
       }
     },

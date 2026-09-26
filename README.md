@@ -884,6 +884,39 @@ Le skill qui lit ces callouts avant qu'un agent ne reprenne un fait comme
 prémisse est dans
 [`skills/verify-before-reuse/SKILL.md`](skills/verify-before-reuse/SKILL.md).
 
+### Une vue unique sur tout le périmètre — `perctl coverage`
+
+Couverture des rôles (`perctl perimeter`), santé du corpus (`perctl lint`), et
+fiabilité de chaque corpus externe déclaré : trois signaux séparés jusqu'ici,
+agrégés en une seule vue par
+[`perctl coverage`](https://github.com/UnPoilTefal/perimeter/issues/85).
+
+Un corpus externe (vault Obsidian, catalogue produit) se déclare dans une
+nouvelle section du registre, sans jamais pourvoir un rôle ni imposer le
+schéma perimeter :
+
+```yaml
+corpus_externes:
+  - { chemin: "../vault-homelab", type: obsidian }
+  - { chemin: "../catalogue-produit", type: catalogue }
+```
+
+`type` est un texte libre, purement descriptif — jamais validé contre une
+énumération, jamais la base d'une heuristique différente selon sa valeur. Un
+registre qui ne déclare que des corpus externes, sans qu'aucun des six rôles
+ne soit pourvu, reste une configuration légitime.
+
+Pour chaque corpus externe, `coverage` rapporte le décompte des callouts
+`[!verification]-` par état, et signale explicitement s'il n'a **jamais été
+audité** (aucun callout, distinct d'un décompte à zéro dans un état donné).
+
+`perctl coverage` porte un verdict : code de sortie non nul si un rôle du
+registre n'est pas pourvu, si le corpus schémé porte une erreur de lint, ou si
+un corpus externe déclaré est introuvable sur le disque. Les callouts en
+attente de confirmation restent de l'information, jamais un motif d'échec à
+eux seuls — même discipline que l'avis ambiant, qui ne bloque jamais la
+sous-commande réellement demandée.
+
 ### Écrire la description
 
 C'est la description, pas le corps, que l'agent lit pour décider si la note est

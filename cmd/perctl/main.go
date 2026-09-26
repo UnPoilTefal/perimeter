@@ -61,6 +61,8 @@ const usage = `perctl — savoir si un agent peut agir sur un perimetre
                            marque un fait douteux dans une note non-schemee
                            (« [!verification]- » ; sans #Lnn, mode interactif
                             ligne par ligne, sur un fichier ou un dossier)
+  perctl coverage          couverture des roles, sante du corpus, et
+                           fiabilite de chaque corpus externe declare
   perctl init   [chemin]   ecrit un perimeter.yml : le registre du perimetre
   perctl schema            ecrit le JSON Schema sur la sortie standard
   perctl version
@@ -109,6 +111,8 @@ func main() {
 		err = cmdReliability(os.Args[2:])
 	case "audit":
 		err = cmdAudit(os.Args[2:])
+	case "coverage":
+		err = cmdCoverage(os.Args[2:])
 	case "init":
 		err = cmdInit(os.Args[2:])
 	case "schema":
