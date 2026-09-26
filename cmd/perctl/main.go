@@ -692,9 +692,11 @@ func avisAmbiantGate(w io.Writer, regPath, corpusPath string) {
 // premisse fausse — exactement ce que la porte existe pour empecher.
 func preconditions(regPath, corpusPath string, a *readiness.Assessment) ([]readiness.Precondition, error) {
 	var pre []readiness.Precondition
+	var reg *perimeter.Registry
 
 	if regPath != "" {
-		reg, err := perimeter.Load(regPath)
+		var err error
+		reg, err = perimeter.Load(regPath)
 		if err != nil {
 			return nil, err
 		}
@@ -710,7 +712,16 @@ func preconditions(regPath, corpusPath string, a *readiness.Assessment) ([]readi
 	if corpusPath == "" || len(a.Facts) == 0 {
 		return pre, nil
 	}
-	c, err := corpus.Load(corpusPath)
+	// Le corpus doit charger la politique declaree au registre — meme regle
+	// que resolveCorpus — sinon un budget de relecture plus strict que le
+	// defaut n'atteint jamais « gate » (#72).
+	cfg := corpus.DefaultConfig()
+	if reg != nil {
+		if _, _, policy, err := reg.CorpusSource(); err == nil {
+			cfg = corpus.ConfigFromPolicy(policy)
+		}
+	}
+	c, err := corpus.LoadWith(corpusPath, cfg)
 	if err != nil {
 		return nil, err
 	}
