@@ -731,6 +731,10 @@ dure, par lot ensuite. Aucun drapeau à positionner, rien qui pourrisse.
 Si le journal se remplit sans jamais tenir la condition, ce n'est pas une boucle à laisser
 tourner — c'est un diagnostic : *les sources déclarées ne suffisent pas à couvrir le périmètre*.
 
+`--perimeter`/`--corpus` restent optionnels ici comme pour `gate` — sans eux, `readiness` ne fait
+que lire le journal. Avec, l'avis ambiant s'accroche aussi sur cette sous-commande
+([#75](https://github.com/UnPoilTefal/perimeter/issues/75)).
+
 ---
 
 ## Mode d'emploi

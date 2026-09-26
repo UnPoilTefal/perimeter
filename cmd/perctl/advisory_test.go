@@ -57,7 +57,7 @@ func TestAvisAmbiantSilencieuxSurUnPerimetreSain(t *testing.T) {
 // P2 — « gate » a son propre modele de resolution (--perimeter et --corpus
 // optionnels et independants, sans recherche ambiante), distinct de
 // resolveCorpus. La story 2 du spec #73 le nomme explicitement : l'avis
-// ambiant doit s'y accrocher quand meme. Le test passe par avisAmbiantGate
+// ambiant doit s'y accrocher quand meme. Le test passe par avisAmbiantIsole
 // directement plutot que par cmdGate : un registre incomplet fait aussi
 // echouer la precondition de gate lui-meme (meme Registry.Check() sous les
 // deux), et cmdGate quitte le process sur un verdict non-Produire — passer
@@ -69,10 +69,10 @@ func TestAvisAmbiantSurGateAvecRegistreIncomplet(t *testing.T) {
 	// manquants, exactement le fixture deja eprouve par advisory_test.go.
 	ecrire(t, regPath, "version: 1\nroles:\n  intention.spec: { source: s }\nsources:\n  s:\n    adapter: files\n    reliability: declared\n    probe: { cmd: \"true\" }\n")
 
-	// Le seam est maintenant l'io.Writer accepte par avisAmbiantGate : plus
+	// Le seam est maintenant l'io.Writer accepte par avisAmbiantIsole : plus
 	// besoin de detourner os.Stderr par un pipe pour l'observer.
 	var buf bytes.Buffer
-	avisAmbiantGate(&buf, regPath, "")
+	avisAmbiantIsole(&buf, regPath, "")
 	out := buf.String()
 	if !strings.Contains(out, "avis ambiant") || !strings.Contains(out, "probleme(s) de registre") {
 		t.Errorf("gate avec un registre incomplet doit produire un avis ambiant, sortie : %q", out)

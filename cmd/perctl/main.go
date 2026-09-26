@@ -609,7 +609,7 @@ func cmdGate(args []string) error {
 	if err != nil {
 		return err
 	}
-	avisAmbiantGate(os.Stderr, *regPath, *corpusPath)
+	avisAmbiantIsole(os.Stderr, *regPath, *corpusPath)
 
 	if *allow {
 		if !*untrusted {
@@ -669,7 +669,7 @@ func cmdGate(args []string) error {
 // (#72 : Registry.Check() ne detecte pas tous les cas ou CorpusSource
 // echoue, ex. deux sources qualifiees pour le meme role).
 //
-// Fonction partagee par preconditions et avisAmbiantGate : elles doivent
+// Fonction partagee par preconditions et avisAmbiantIsole : elles doivent
 // rester d'accord sur la meme politique, sous peine de rendre un verdict et
 // un avis ambiant qui se contredisent sur la meme fraicheur.
 func corpusConfigParRegistre(reg *perimeter.Registry) (*corpus.Config, error) {
@@ -683,13 +683,13 @@ func corpusConfigParRegistre(reg *perimeter.Registry) (*corpus.Config, error) {
 	return corpus.ConfigFromPolicy(policy), nil
 }
 
-// avisAmbiantGate adapte l'avis ambiant au modele de resolution propre a
-// « gate » : --perimeter et --corpus y sont optionnels et independants,
-// sans la recherche ambiante des autres sous-commandes — preconditions()
-// vient deja de les charger une fois avec succes, donc un second
-// chargement ici n'a pas de raison d'echouer differemment ; s'il echoue
-// quand meme, il se rapporte comme "indisponible" plutot qu'en silence.
-func avisAmbiantGate(w io.Writer, regPath, corpusPath string) {
+// avisAmbiantIsole adapte l'avis ambiant aux sous-commandes dont le modele
+// de resolution est isole — « gate » et « readiness » (#75) : --perimeter et
+// --corpus y sont optionnels et independants, sans la recherche ambiante des
+// autres sous-commandes. Un echec de chargement se rapporte comme
+// "indisponible" plutot que de bloquer la commande — l'avis ambiant ne doit
+// jamais devenir un point de panne pour le reste de l'outil.
+func avisAmbiantIsole(w io.Writer, regPath, corpusPath string) {
 	var reg *perimeter.Registry
 	var c *corpus.Corpus
 	if regPath != "" {
@@ -829,7 +829,15 @@ func cmdReadiness(args []string) error {
 	fs := flag.NewFlagSet("readiness", flag.ExitOnError)
 	ledger := fs.String("ledger", readiness.LedgerFile, "journal des passages")
 	window := fs.Int("window", readiness.DefaultWindow, "nombre de passages consecutifs juges")
+	regPath := fs.String("perimeter", "", "registre des sources, pour l'avis ambiant (optionnel)")
+	corpusPath := fs.String("corpus", "", "corpus de memoire, pour l'avis ambiant (optionnel)")
 	_ = fs.Parse(trimPositional(args))
+
+	// Meme modele de resolution isole que « gate » (#75) : --perimeter et
+	// --corpus sont optionnels et independants, sans recherche ambiante —
+	// « readiness » lit un journal, pas un corpus, et n'en a jamais eu besoin
+	// pour son metier propre.
+	avisAmbiantIsole(os.Stderr, *regPath, *corpusPath)
 
 	entries, err := readiness.ReadLedger(*ledger)
 	if err != nil {
