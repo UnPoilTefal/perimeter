@@ -33,6 +33,7 @@ import (
 	"github.com/UnPoilTefal/perimeter/internal/readiness"
 	"github.com/UnPoilTefal/perimeter/internal/reliability"
 	"github.com/UnPoilTefal/perimeter/internal/report"
+	"github.com/UnPoilTefal/perimeter/internal/resolution"
 	"github.com/UnPoilTefal/perimeter/internal/verify"
 	"github.com/UnPoilTefal/perimeter/schema"
 	"golang.org/x/term"
@@ -146,80 +147,32 @@ func positional(args []string) string {
 	return ""
 }
 
-// resolveCorpus rend le corpus a analyser.
-//
-// Sans chemin explicite, la politique vient du registre de perimetre — c'est
-// le mode normal, et c'est ce qui permet a une equipe de n'ecrire qu'un seul
-// fichier. Avec un chemin, on retombe sur les valeurs par defaut : usage ad
-// hoc, sur un repertoire qui n'appartient a aucun perimetre declare.
+// resolveCorpus rend le corpus a analyser, en affichant immediatement toute
+// note renvoyee par la resolution (ex. PERIMETER ignoree) — la logique de
+// precedence elle-meme vit dans internal/resolution, deep et testable sans
+// flag ni os.Exit.
 func resolveCorpus(path, regPath string) (*corpus.Corpus, *perimeter.Registry, error) {
-	if path != "" {
-		// Un chemin dit *quel corpus*, un --perimeter explicite dit *quelle
-		// politique*. Les deux ne s'excluent pas — les accepter puis en
-		// ignorer un rendait « --probe-sources » inoperant sans le dire, et
-		// faisait rendre a « lint <chemin> » un verdict different de
-		// « lint » sur le meme corpus.
-		if regPath == "" {
-			// Un registre seulement ambiant — PERIMETER, ou trouve en
-			// remontant — ne s'applique pas a un corpus designe a la main :
-			// il ferait piloter n'importe quel repertoire analyse au passage
-			// par la politique d'un autre perimetre.
-			if env := os.Getenv(perimeter.EnvVar); env != "" {
-				fmt.Fprintf(os.Stderr, "note : %s est definie, mais un chemin est donne — la politique du registre n'est pas appliquee\n      la demander explicitement : --perimeter %s\n\n", perimeter.EnvVar, env) //nolint:errcheck // sortie terminal
-			}
-			c, err := corpus.Load(path)
-			return c, nil, err
-		}
-		reg, err := perimeter.Load(regPath)
-		if err != nil {
-			return nil, nil, err
-		}
-		_, _, policy, err := reg.CorpusSource()
-		if err != nil {
-			return nil, nil, err
-		}
-		c, err := corpus.LoadWith(path, corpus.ConfigFromPolicy(policy))
-		return c, reg, err
+	c, reg, warnings, err := resolution.Resolve(path, regPath)
+	for _, w := range warnings {
+		fmt.Fprintln(os.Stderr, w+"\n") //nolint:errcheck // sortie terminal
 	}
-	if regPath == "" {
-		found, err := resolveRegistre(".", designerParDrapeau)
-		if err != nil {
-			return nil, nil, err
-		}
-		regPath = found
-	}
-	reg, err := perimeter.Load(regPath)
-	if err != nil {
-		return nil, nil, err
-	}
-	nom, root, policy, err := reg.CorpusSource()
-	if err != nil {
-		return nil, nil, err
-	}
-	// Un corpus declare mais absent est le premier mur que rencontre un
-	// nouvel utilisateur, juste apres un « perctl init » reussi. L'erreur de
-	// la bibliotheque standard est exacte et muette sur la cause.
-	if st, errStat := os.Stat(root); errStat != nil || !st.IsDir() {
-		return nil, nil, fmt.Errorf("%s", perimeter.CheminAbsent(nom, "contrainte.memoire", root))
-	}
-	c, err := corpus.LoadWith(root, corpus.ConfigFromPolicy(policy))
 	return c, reg, err
 }
 
-// avisAmbiant calcule et affiche l'avis ambiant sur stderr juste apres
-// qu'une sous-commande a resolu son registre/corpus, et rend son contenu
-// pour les sorties JSON qui le supportent deja. reuse porte le
-// report.Result deja calcule par l'appelant (cmdLint) pour eviter un
-// second passage de lint ; nil partout ailleurs.
+// avisAmbiant calcule et affiche l'avis ambiant sur w juste apres qu'une
+// sous-commande a resolu son registre/corpus, et rend son contenu pour les
+// sorties JSON qui le supportent deja. reuse porte le report.Result deja
+// calcule par l'appelant (cmdLint) pour eviter un second passage de lint ;
+// nil partout ailleurs.
 //
 // Les echecs de chargement (lint ou index de fiabilite) sont convertis ici
 // en avis "indisponible" — jamais remontes comme l'erreur de la
 // sous-commande elle-meme : l'avis ambiant ne doit jamais devenir un point
 // de panne pour le reste de l'outil.
-func avisAmbiant(reg *perimeter.Registry, c *corpus.Corpus, reuse *report.Result) []string {
+func avisAmbiant(w io.Writer, reg *perimeter.Registry, c *corpus.Corpus, reuse *report.Result) []string {
 	afficher := func(a advisory.Advisory) []string {
 		if ligne := a.Ligne(); ligne != "" {
-			fmt.Fprintln(os.Stderr, ligne) //nolint:errcheck // sortie terminal
+			fmt.Fprintln(w, ligne) //nolint:errcheck // sortie terminal
 		}
 		return a.Warnings()
 	}
@@ -260,40 +213,6 @@ func avisAmbiant(reg *perimeter.Registry, c *corpus.Corpus, reuse *report.Result
 	return afficher(advisory.Compute(reg, lintRes, entries, root, budget, time.Now(), scope))
 }
 
-// Conseils de designation d'un registre a la main. Ils different par
-// sous-commande, parce que ce n'est pas le meme argument qui le nomme :
-// --perimeter la ou le positionnel designe un corpus, le positionnel lui-meme
-// la ou le registre *est* le sujet. Le reste du diagnostic — les emplacements
-// cherches, la piste explicite qui ne repond pas — n'a qu'une definition.
-const (
-	designerParDrapeau  = "indiquer un chemin avec --perimeter"
-	designerParArgument = "donner le registre en argument : « perctl perimeter <registre> »"
-)
-
-// resolveRegistre applique l'ordre de resolution du registre — PERIMETER, la
-// remontee d'arborescence depuis depuis, puis l'emplacement utilisateur — et
-// rend, a defaut, le diagnostic qui dit ou l'outil a cherche.
-//
-// Elle est partagee par resolveCorpus et par « perctl perimeter ». C'est le
-// fond de #66 : « perimeter » ouvrait perimeter.yml dans le repertoire
-// courant pendant que lint et verify remontaient l'arborescence, et rien
-// n'annoncait que les sous-commandes ne se resolvaient pas pareil. Deux
-// copies de cette regle, c'est la garantie qu'elles divergeront de nouveau.
-func resolveRegistre(depuis, designation string) (string, error) {
-	found, provenance, ok := perimeter.Resoudre(depuis, perimeter.DossierUtilisateur())
-	if ok {
-		return found, nil
-	}
-	// Une piste explicite qui ne repond pas n'est pas ignoree : retomber en
-	// silence sur un autre registre ferait travailler sur un perimetre que
-	// l'utilisateur n'a pas nomme.
-	if provenance == perimeter.EnvVar {
-		return "", fmt.Errorf("%s pointe %q, qui n'existe pas — corriger la variable, ou l'effacer pour laisser la recherche se faire",
-			perimeter.EnvVar, os.Getenv(perimeter.EnvVar))
-	}
-	return "", fmt.Errorf("%s", perimeter.Introuvable(depuis, perimeter.DossierUtilisateur(), designation))
-}
-
 func target(args []string) string {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		return args[0]
@@ -327,7 +246,7 @@ func cmdLint(args []string) error {
 	}
 	// lint a deja calcule ce dont l'avis ambiant a besoin : le lui passer
 	// evite un second passage identique sur le meme corpus.
-	avisAmbiant(reg, c, res)
+	avisAmbiant(os.Stderr, reg, c, res)
 	if err := emit(res, *format, *verbose); err != nil {
 		return err
 	}
@@ -352,7 +271,7 @@ func cmdVerify(args []string) error {
 	if err != nil {
 		return err
 	}
-	avisAmbiant(reg, c, nil)
+	avisAmbiant(os.Stderr, reg, c, nil)
 
 	if *diffRef != "" {
 		return listerPreuvesModifiees(c, *diffRef)
@@ -430,7 +349,7 @@ func cmdIndex(args []string) error {
 	if err != nil {
 		return err
 	}
-	avisAmbiant(reg, c, nil)
+	avisAmbiant(os.Stderr, reg, c, nil)
 	if !c.HasIndex {
 		return fmt.Errorf("aucun index lisible en %s", filepath.Join(c.Root, c.Config.Corpus.Index))
 	}
@@ -550,7 +469,7 @@ func cmdPerimeter(args []string) error {
 	// resolution des autres, au lieu d'ouvrir perimeter.yml la ou elle est
 	// lancee.
 	if root == "" {
-		found, err := resolveRegistre(".", designerParArgument)
+		found, err := resolution.ResolveRegistryPath(".", resolution.DesignationArgument)
 		if err != nil {
 			return err
 		}
@@ -690,7 +609,7 @@ func cmdGate(args []string) error {
 	if err != nil {
 		return err
 	}
-	avisAmbiantGate(*regPath, *corpusPath)
+	avisAmbiantGate(os.Stderr, *regPath, *corpusPath)
 
 	if *allow {
 		if !*untrusted {
@@ -747,24 +666,24 @@ func cmdGate(args []string) error {
 // vient deja de les charger une fois avec succes, donc un second
 // chargement ici n'a pas de raison d'echouer differemment ; s'il echoue
 // quand meme, il se rapporte comme "indisponible" plutot qu'en silence.
-func avisAmbiantGate(regPath, corpusPath string) {
+func avisAmbiantGate(w io.Writer, regPath, corpusPath string) {
 	var reg *perimeter.Registry
 	var c *corpus.Corpus
 	if regPath != "" {
 		var err error
 		if reg, err = perimeter.Load(regPath); err != nil {
-			fmt.Fprintln(os.Stderr, (advisory.Advisory{Unavailable: true, Cause: err.Error()}).Ligne()) //nolint:errcheck // sortie terminal
+			fmt.Fprintln(w, (advisory.Advisory{Unavailable: true, Cause: err.Error()}).Ligne()) //nolint:errcheck // sortie terminal
 			return
 		}
 	}
 	if corpusPath != "" {
 		var err error
 		if c, err = corpus.Load(corpusPath); err != nil {
-			fmt.Fprintln(os.Stderr, (advisory.Advisory{Unavailable: true, Cause: err.Error()}).Ligne()) //nolint:errcheck // sortie terminal
+			fmt.Fprintln(w, (advisory.Advisory{Unavailable: true, Cause: err.Error()}).Ligne()) //nolint:errcheck // sortie terminal
 			return
 		}
 	}
-	avisAmbiant(reg, c, nil)
+	avisAmbiant(w, reg, c, nil)
 }
 
 // preconditions rassemble ce que l'outil sait verifier seul : la couverture
@@ -987,7 +906,7 @@ func cmdPropose(args []string) error {
 	if err != nil {
 		return err
 	}
-	avisAmbiant(reg, c, nil)
+	avisAmbiant(os.Stderr, reg, c, nil)
 	// Une commande qui modifie des fichiers doit dire lesquels et ou. Sans
 	// cela, un registre au chemin absolu fait ecrire ailleurs que la ou l'on
 	// croit etre — constate, et corrige ici.
@@ -1163,7 +1082,7 @@ func cmdDraft(args []string) error {
 	if err != nil {
 		return err
 	}
-	warnings := avisAmbiant(reg, c, nil)
+	warnings := avisAmbiant(os.Stderr, reg, c, nil)
 
 	v, err := draft.Check(c, n, reg, draft.Options{Voisins: *voisins})
 	if err != nil {
@@ -1343,7 +1262,7 @@ func cmdHarvest(args []string) error {
 	if reg == nil {
 		return fmt.Errorf("harvest a besoin d'un registre : il ne lit que des sources declarees")
 	}
-	warnings := avisAmbiant(reg, c, nil)
+	warnings := avisAmbiant(os.Stderr, reg, c, nil)
 
 	res, err := harvest.Run(c, reg, harvest.Options{
 		AllowExec: *allow, Depuis: *depuis, Limite: *limite, Voisins: *voisins,
@@ -1398,7 +1317,7 @@ func cmdReliabilityCheck(args []string) error {
 	if reg == nil {
 		return fmt.Errorf("aucun registre trouve — voir « perctl init »")
 	}
-	avisAmbiant(reg, c, nil)
+	avisAmbiant(os.Stderr, reg, c, nil)
 
 	entries, err := reliability.Load(reliability.IndexPath(reg.Path))
 	if err != nil {

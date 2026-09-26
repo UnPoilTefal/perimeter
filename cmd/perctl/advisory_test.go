@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,12 +69,13 @@ func TestAvisAmbiantSurGateAvecRegistreIncomplet(t *testing.T) {
 	// manquants, exactement le fixture deja eprouve par advisory_test.go.
 	ecrire(t, regPath, "version: 1\nroles:\n  intention.spec: { source: s }\nsources:\n  s:\n    adapter: files\n    reliability: declared\n    probe: { cmd: \"true\" }\n")
 
-	out, _ := stderrDe(t, func() error {
-		avisAmbiantGate(regPath, "")
-		return nil
-	})
+	// Le seam est maintenant l'io.Writer accepte par avisAmbiantGate : plus
+	// besoin de detourner os.Stderr par un pipe pour l'observer.
+	var buf bytes.Buffer
+	avisAmbiantGate(&buf, regPath, "")
+	out := buf.String()
 	if !strings.Contains(out, "avis ambiant") || !strings.Contains(out, "probleme(s) de registre") {
-		t.Errorf("gate avec un registre incomplet doit produire un avis ambiant, stderr : %q", out)
+		t.Errorf("gate avec un registre incomplet doit produire un avis ambiant, sortie : %q", out)
 	}
 }
 
