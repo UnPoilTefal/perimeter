@@ -281,10 +281,13 @@ calibrer ([#38](https://github.com/UnPoilTefal/perimeter/issues/38)).
 **`perctl reliability check <ref>`** lit l'index de fiabilité du périmètre
 (`perimeter.reliability.jsonl`, à côté du registre) et rend un verdict —
 statut, fraîcheur, dérive de contenu — pour une référence qu'un agent
-s'apprête à réutiliser. L'index et son format complet restent à documenter
-ici à mesure que `reliability confirm`/`audit` (l'écriture) se posent
-([#68](https://github.com/UnPoilTefal/perimeter/issues/68)) ; ce
-paragraphe n'annonce que la lecture, déjà livrée.
+s'apprête à réutiliser ([#68](https://github.com/UnPoilTefal/perimeter/issues/68)).
+
+Ce mécanisme suppose un registre `perimeter.yml` : un corpus **non-schémé**
+(vault Obsidian, catalogue produit sans schéma perimeter) n'en a pas. Pour ce
+cas, voir **`perctl audit`** ci-dessous — un mécanisme volontairement séparé,
+pas une extension de `reliability`
+([#76](https://github.com/UnPoilTefal/perimeter/issues/76)).
 
 **Deux règles de sûreté, chacune née d'une erreur constatée :**
 
@@ -840,6 +843,42 @@ verdict reste à l'humain ou à l'agent.
 
 Le skill correspondant — le portillon complet, portable vers un harnais d'agent —
 est dans [`skills/remember/SKILL.md`](skills/remember/SKILL.md).
+
+### Marquer un fait douteux dans un corpus non-schémé — `perctl audit`
+
+Un vault Obsidian ou un catalogue d'équipe n'adopte pas forcément le schéma
+perimeter : pas de registre, pas d'index de fiabilité. `perctl audit` marque
+malgré tout un fait douteux **en place**, dans le texte de la note, sans
+jamais l'écraser ni le corriger lui-même — la correction reste un jugement
+humain ([#76](https://github.com/UnPoilTefal/perimeter/issues/76)).
+
+```bash
+perctl audit Homelab/Réseau.md#L42 --origine "sonde rejouée : ..."   # une ligne precise
+perctl audit Homelab/Réseau.md                                       # mode interactif, ligne par ligne
+perctl audit Homelab/                                                # idem, sur chaque note du dossier
+```
+
+Il écrit, juste après la ligne visée, un callout Obsidian pliable :
+
+```markdown
+> [!verification]-
+> **date**: 2026-09-26
+> **origine**: sélection humaine
+> **état**: à valider
+> "citation courte du fait visé"
+```
+
+Aucun seuil d'âge automatique en V1 : sur le vault homelab, l'ancienneté d'un
+fichier ne dit rien de la fraîcheur d'un fait qu'il contient, et aucune note
+n'y est réellement à l'abandon — seule la désignation humaine du fait déclenche
+le marquage. Le format reste assez simple pour qu'un humain l'écrive aussi à la
+main dans Obsidian ; la confirmation ou l'invalidation (`état: confirmé` /
+`invalidé`) s'obtient en éditant le callout en place, jamais en en empilant un
+second.
+
+Le skill qui lit ces callouts avant qu'un agent ne reprenne un fait comme
+prémisse est dans
+[`skills/verify-before-reuse/SKILL.md`](skills/verify-before-reuse/SKILL.md).
 
 ### Écrire la description
 
