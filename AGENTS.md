@@ -11,7 +11,7 @@ posée par `/setup-matt-pocock-skills` : `docs/agents/issue-tracker.md` et
 ## Avant tout code : idée → spec → tickets
 
 Toute tâche au-delà d'un correctif trivial suit `mattpocock-skills:grill-with-docs`
-(interview qui affine l'idée, alimente `CONTEXT.md`/`docs/adr/` au fil de
+(interview qui affine l'idée, alimente `GLOSSARY.md`/`docs/adr/` au fil de
 l'eau) puis `mattpocock-skills:to-spec`. Si le chantier tient sur plusieurs
 sessions, enchaîner sur `mattpocock-skills:to-tickets` (tickets tracer-bullet
 avec dépendances de blocage) avant la moindre ligne de code ; sinon,
@@ -55,7 +55,7 @@ attend la revue de fin d'issue, jamais mêlé à l'implémentation.
   ancrer la syntaxe exacte d'une CLI tierce plutôt que la deviner.
 - `mattpocock-skills:grilling` en pressure-test d'un design juste avant
   `to-spec`, sur les chantiers à fort enjeu (#68 en est un exemple).
-- `mattpocock-skills:domain-modeling` pour tenir `CONTEXT.md` à jour dès
+- `mattpocock-skills:domain-modeling` pour tenir `GLOSSARY.md` à jour dès
   qu'un concept du modèle change (rôle, invariant, statut de fiabilité).
   `grill-with-docs` le crée déjà organiquement dès le premier chantier qui
   touche le modèle ; `domain-modeling` sert à l'affiner ensuite, pas à le
